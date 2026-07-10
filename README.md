@@ -21,7 +21,7 @@ Abra `http://127.0.0.1:5000`. Sem `DATABASE_URL`, a aplicação cria `instance/m
 3. O arquivo `render.yaml` criará o serviço web e o PostgreSQL.
 4. Aguarde o deploy e abra a URL gerada.
 5. No painel do serviço, copie ou troque `ADMIN_PASSWORD` por uma senha conhecida.
-6. Acesse `/admin/entrar` para gerenciar as inscrições.
+6. Acesse o endpoint para administradores para gerenciar as inscrições.
 
 > Planos e nomes de recursos do Render podem mudar. Caso o Blueprint não ofereça plano gratuito, escolha o plano disponível e mantenha as mesmas variáveis.
 
@@ -31,9 +31,6 @@ Abra `http://127.0.0.1:5000`. Sem `DATABASE_URL`, a aplicação cria `instance/m
 - `/inscricao` - formulário
 - `/inscricao/recebida` - confirmação
 - `/privacidade` - política de dados
-- `/admin/entrar` - login administrativo
-- `/admin` - painel
-- `/admin/inscricoes.csv` - exportação
 - `/saude` - health check
 
 ## Edição rápida
