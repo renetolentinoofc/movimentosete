@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Movimento 7 | Festival Cultural{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-art" role="img" aria-label="Identidade visual Movimento 7 - Cultura, Arte e Beleza"></div>
+  <div class="hero-overlay"></div>
+  <div class="container hero-content reveal">
+    <p class="eyebrow">Festival cultural · edição 01</p>
+    <h1>Sete caminhos.<br><span>Uma comunidade em movimento.</span></h1>
+    <p>Um encontro que aproxima cultura de rua, beleza, educação, empreendedorismo, esporte e cuidado coletivo.</p>
+    <div class="hero-actions"><a class="button" href="{{ url_for('main.register') }}">Quero participar</a><a class="button button-ghost" href="#experiencia">Conheça o projeto</a></div>
+  </div>
+  <div class="hero-stats container" aria-label="Pilares do evento">
+    <span>Arte</span><span>Beleza</span><span>Educação</span><span>Esporte</span><span>Comunidade</span><span>Trabalho</span><span>Futuro</span>
+  </div>
+</section>
+
+<section class="section" id="essencia">
+  <div class="container split reveal">
+    <div><p class="eyebrow">De onde viemos</p><h2>Criado por quem vive a rua e acredita no poder do encontro.</h2></div>
+    <div class="prose"><p>O Movimento 7 nasce da união entre pessoas que transformam talento em oportunidade. Somos uma rede comunitária que cria espaços para expressão, formação e geração de renda.</p><p>O evento valoriza saberes locais e abre palco para barbeiros, trancistas, artistas, atletas, educadores, empreendedores e voluntários.</p></div>
+  </div>
+</section>
+
+<section class="section section-dark" id="experiencia">
+  <div class="container">
+    <p class="eyebrow reveal">O que acontece</p><h2 class="reveal">Um festival vivo, feito para participar.</h2>
+    <div class="card-grid">
+      <article class="feature-card reveal"><span>01</span><h3>Beleza e identidade</h3><p>Barbearia, tranças, cuidado e autoestima como ferramentas de conexão.</p></article>
+      <article class="feature-card reveal"><span>02</span><h3>Arte e cultura</h3><p>Música, fotografia, produção visual, dança e manifestações da cultura urbana.</p></article>
+      <article class="feature-card reveal"><span>03</span><h3>Educação prática</h3><p>Oficinas e trocas de conhecimento que ampliam caminhos profissionais.</p></article>
+      <article class="feature-card reveal"><span>04</span><h3>Esporte e disciplina</h3><p>Atividades que unem movimento, compromisso, saúde e convivência.</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="section community" id="publico">
+  <div class="container split reveal">
+    <div class="poster"><img src="{{ url_for('static', filename='img/logo_movimento7.png') }}" alt="Movimento 7 Festival Cultural - Edição 01"></div>
+    <div><p class="eyebrow">Para quem fazemos</p><h2>Para quem quer ocupar, aprender, ensinar e construir.</h2><p>O Movimento 7 é para moradores, famílias, juventudes, artistas independentes, profissionais da beleza, pequenos negócios e organizações que desejam fortalecer o território.</p><ul class="check-list"><li>Participação plural e acolhedora</li><li>Valorização de talentos locais</li><li>Visibilidade para empreendedores</li><li>Conexões que continuam depois do evento</li></ul><a class="text-link" href="{{ url_for('main.register') }}">Abrir formulário de inscrição →</a></div>
+  </div>
+</section>
+
+<section class="section section-dark gallery" id="galeria">
+  <div class="container"><p class="eyebrow reveal">Atmosfera</p><h2 class="reveal">Cor, energia e cultura em cada detalhe.</h2>
+    <div class="gallery-grid">
+      <div class="gallery-tile tile-1 reveal"><strong>Encontro</strong><span>Comunidade em primeiro plano</span></div>
+      <div class="gallery-tile tile-2 reveal"><strong>Criação</strong><span>Arte que nasce no território</span></div>
+      <div class="gallery-tile tile-3 reveal"><strong>Movimento</strong><span>Esporte, dança e presença</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="section sponsors" id="patrocinadores">
+  <div class="container"><p class="eyebrow reveal">Quem fortalece</p><h2 class="reveal">Parceiros que colocam a comunidade em movimento.</h2>
+    <div class="sponsor-grid">
+      {% for sponsor in sponsors %}<article class="sponsor-card reveal">
+        {% if sponsor.website_url %}<a href="{{ sponsor.website_url }}" rel="noopener" target="_blank">{% endif %}
+        <img src="{{ url_for('static', filename='img/' + sponsor.logo_filename) }}" alt="{{ sponsor.name }}" loading="lazy">
+        {% if sponsor.website_url %}</a>{% endif %}
+        <h3>{{ sponsor.name }}</h3><p>{{ sponsor.description }}</p>
+      </article>{% endfor %}
+    </div>
+    <div class="partner-cta reveal"><div><h3>Sua marca também pode fazer parte.</h3><p>Associe sua empresa a uma iniciativa local de cultura, educação e oportunidade.</p></div><a class="button button-ghost" href="mailto:contato@movimento7.org?subject=Quero%20patrocinar%20o%20Movimento%207">Quero patrocinar</a></div>
+  </div>
+</section>
+
+<section class="section final-cta"><div class="container reveal"><p class="eyebrow">Faça parte da edição 01</p><h2>Seu talento pode ser o próximo ponto de encontro.</h2><a class="button" href="{{ url_for('main.register') }}">Preencher inscrição</a></div></section>
+{% endblock %}

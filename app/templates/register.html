@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Inscrição | Movimento 7{% endblock %}
+{% block content %}
+<section class="page-hero"><div class="container"><p class="eyebrow">Edição 01</p><h1>Inscrição de participantes</h1><p>Conte quem você é, como deseja participar e qual estrutura precisa. A equipe entrará em contato após a análise.</p></div></section>
+<section class="section"><div class="container form-layout">
+  <aside class="form-aside"><img src="{{ url_for('static', filename='img/logo_movimento7.png') }}" alt="Movimento 7"><h2>Antes de enviar</h2><p>Use informações verdadeiras e um contato que você acompanha. Campos com * são obrigatórios.</p><ol><li>Preencha seus dados</li><li>Apresente sua proposta</li><li>Informe necessidades técnicas</li><li>Aguarde o contato da organização</li></ol></aside>
+  <form method="post" class="registration-form" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="form-section"><h2>1. Seus dados</h2><div class="form-grid">
+      {% for field in [form.full_name, form.social_name, form.email, form.phone, form.neighborhood, form.city] %}<div class="field {% if field.name in ['full_name','email'] %}field-wide{% endif %}">{{ field.label }}{{ field(class_='input', placeholder=field.label.text) }}{% for error in field.errors %}<small class="error">{{ error }}</small>{% endfor %}</div>{% endfor %}
+    </div></div>
+    <div class="form-section"><h2>2. Sua participação</h2>
+      <div class="field">{{ form.participation_type.label }}{{ form.participation_type(class_='input') }}{% for error in form.participation_type.errors %}<small class="error">{{ error }}</small>{% endfor %}</div>
+      <div class="field">{{ form.experience.label }}{{ form.experience(class_='input', rows=7, placeholder='Apresente sua trajetória, atividade e o que pretende realizar no evento.') }}<div class="field-meta"><span>Mínimo de 20 caracteres</span><span data-counter-for="experience">0/1800</span></div>{% for error in form.experience.errors %}<small class="error">{{ error }}</small>{% endfor %}</div>
+      <div class="form-grid"><div class="field">{{ form.instagram.label }}{{ form.instagram(class_='input', placeholder='@seuperfil') }}</div><div class="field">{{ form.portfolio_url.label }}{{ form.portfolio_url(class_='input', placeholder='https://...') }}{% for error in form.portfolio_url.errors %}<small class="error">{{ error }}</small>{% endfor %}</div></div>
+    </div>
+    <div class="form-section"><h2>3. Organização e acolhimento</h2>
+      <div class="field">{{ form.equipment_needed.label }}{{ form.equipment_needed(class_='input', rows=4, placeholder='Ex.: tomada 220V, mesa, cadeira, cobertura...') }}</div>
+      <div class="field">{{ form.accessibility_needs.label }}{{ form.accessibility_needs(class_='input', rows=4, placeholder='Informe adaptações que ajudem sua participação.') }}</div>
+      <div class="field">{{ form.availability.label }}{{ form.availability(class_='input') }}</div>
+    </div>
+    <div class="consent">{{ form.lgpd_consent() }} {{ form.lgpd_consent.label }}{% for error in form.lgpd_consent.errors %}<small class="error">{{ error }}</small>{% endfor %}<p>Consulte nossa <a href="{{ url_for('main.privacy') }}" target="_blank">política de privacidade</a>.</p></div>
+    {{ form.submit(class_='button button-submit') }}
+  </form>
+</div></section>
+{% endblock %}
