@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Extensões são criadas sem app para facilitar testes e manutenção.
 db = SQLAlchemy()
@@ -24,6 +25,14 @@ def create_app() -> Flask:
     load_dotenv()
 
     app = Flask(__name__, instance_relative_config=True)
+    # O Render executa a aplicação atrás de um proxy HTTPS.
+    # Isso permite que o Flask reconheça corretamente o domínio e o protocolo público.
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+    )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     database_url = os.getenv("DATABASE_URL", "").strip()

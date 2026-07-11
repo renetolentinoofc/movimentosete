@@ -203,7 +203,6 @@ def export_csv():
     )
 
 
-
 def _google_oauth_client_config() -> dict:
     """Monta a configuração OAuth sem gravar segredos no código."""
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -216,9 +215,7 @@ def _google_oauth_client_config() -> dict:
         missing.append("GOOGLE_CLIENT_SECRET")
 
     if missing:
-        raise RuntimeError(
-            "Variáveis do Google ausentes: " + ", ".join(missing)
-        )
+        raise RuntimeError("Variáveis do Google ausentes: " + ", ".join(missing))
 
     return {
         "web": {
@@ -285,7 +282,18 @@ def google_callback():
             state=expected_state,
             redirect_uri=_google_redirect_uri(),
         )
-        flow.fetch_token(authorization_response=request.url)
+        callback_url = url_for(
+            "main.google_callback",
+            _external=True,
+            _scheme="https",
+        )
+
+        if request.query_string:
+            callback_url = f"{callback_url}?" f"{request.query_string.decode('utf-8')}"
+
+        flow.fetch_token(
+            authorization_response=callback_url,
+        )
     except Exception:
         current_app.logger.exception("Falha ao concluir o OAuth do Google")
         session.pop("google_oauth_state", None)
