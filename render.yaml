@@ -3,16 +3,33 @@ services:
     name: movimento7
     runtime: python
     plan: free
+
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn "app:create_app()" --workers 2 --threads 4 --timeout 120
     healthCheckPath: /saude
+
     envVars:
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+
+      - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
+        sync: false
+
       - key: PYTHON_VERSION
-        value: 3.13.5
+        value: "3.13.5"
+
       - key: SECRET_KEY
         generateValue: true
+
       - key: ADMIN_PASSWORD
-        generateValue: true
+        sync: false
+
       - key: DATABASE_URL
         fromDatabase:
           name: movimento7-db

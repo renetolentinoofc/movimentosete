@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Google Drive autorizado | Movimento 7{% endblock %}
+{% block content %}
+<section class="admin-page container">
+  <p class="eyebrow">Integração da galeria</p>
+  <h1>Google Drive autorizado</h1>
+  <p>
+    Copie o token abaixo e salve-o no Render como
+    <strong>GOOGLE_REFRESH_TOKEN</strong>. Ele será mostrado apenas nesta etapa.
+  </p>
+
+  <label for="refresh-token"><strong>Refresh token</strong></label>
+  <textarea id="refresh-token" class="input" rows="8" readonly>{{ refresh_token }}</textarea>
+
+  <p>
+    Depois de salvar a variável no Render, faça um novo deploy e não compartilhe
+    esse valor nem o inclua no GitHub.
+  </p>
+
+  <a class="button" href="{{ url_for('main.admin_dashboard') }}">Voltar ao painel</a>
+</section>
+{% endblock %}
