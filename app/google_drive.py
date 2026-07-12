@@ -18,9 +18,7 @@ from PIL import Image, ImageOps
 from . import db
 from .models import AppSetting
 
-DRIVE_SCOPES = [
-    "https://www.googleapis.com/auth/drive"
-]
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 REFRESH_TOKEN_KEY = "google_drive_refresh_token"
 
 
@@ -114,7 +112,9 @@ def get_google_credentials() -> Credentials:
 
 
 def get_drive_service() -> Any:
-    return build("drive", "v3", credentials=get_google_credentials(), cache_discovery=False)
+    return build(
+        "drive", "v3", credentials=get_google_credentials(), cache_discovery=False
+    )
 
 
 def get_gallery_folder_id() -> str:
@@ -167,6 +167,7 @@ def download_drive_image(file_id: str) -> io.BytesIO:
 
 def delete_drive_image(file_id: str) -> None:
     get_drive_service().files().delete(fileId=file_id).execute()
+
 
 def delete_refresh_token() -> None:
     setting = db.session.get(AppSetting, REFRESH_TOKEN_KEY)
