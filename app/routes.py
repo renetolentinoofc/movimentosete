@@ -27,8 +27,8 @@ from .forms import AdminLoginForm, GalleryImageForm, RegistrationForm
 from .google_drive import (
     DRIVE_SCOPES,
     delete_drive_image,
-    delete_refresh_token,
     download_drive_image,
+    get_gallery_folder_info,
     google_drive_is_connected,
     save_refresh_token,
     upload_gallery_image,
