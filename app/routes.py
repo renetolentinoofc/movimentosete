@@ -241,7 +241,9 @@ def google_authorize():
         flow = Flow.from_client_config(
             _google_oauth_client_config(),
             scopes=DRIVE_SCOPES,
+            state=expected_state,
             redirect_uri=_google_redirect_uri(),
+            code_verifier=code_verifier,
         )
     except RuntimeError as exc:
         current_app.logger.error("Falha ao configurar OAuth: %s", exc)
@@ -254,6 +256,8 @@ def google_authorize():
         prompt="consent",
     )
     session["google_oauth_state"] = state
+    session["google_oauth_state"] = state
+    session["google_code_verifier"] = flow.code_verifier
 
     return redirect(authorization_url)
 
@@ -263,9 +267,14 @@ def google_authorize():
 def google_callback():
     """Recebe o retorno do Google e apresenta o refresh token uma única vez."""
     expected_state = session.get("google_oauth_state")
+    code_verifier = session.get("google_code_verifier")
     returned_state = request.args.get("state", "")
 
-    if not expected_state or not hmac.compare_digest(expected_state, returned_state):
+    if (
+        not expected_state
+        or not hmac.compare_digest(expected_state, returned_state)
+        or not code_verifier
+    ):
         session.pop("google_oauth_state", None)
         flash("A autorização expirou ou o estado OAuth é inválido.", "danger")
         return redirect(url_for("main.admin_dashboard"))
@@ -301,6 +310,8 @@ def google_callback():
         return redirect(url_for("main.admin_dashboard"))
 
     session.pop("google_oauth_state", None)
+    session.pop("google_oauth_state", None)
+    session.pop("google_code_verifier", None)
     refresh_token = flow.credentials.refresh_token
 
     if not refresh_token:
