@@ -238,11 +238,11 @@ def _google_redirect_uri() -> str:
 def google_authorize():
     """Inicia a autorização da conta Google usada pelo Movimento 7."""
     try:
-            flow = Flow.from_client_config(
-        _google_oauth_client_config(),
-        scopes=DRIVE_SCOPES,
-        redirect_uri=_google_redirect_uri(),
-    )
+        flow = Flow.from_client_config(
+            _google_oauth_client_config(),
+            scopes=DRIVE_SCOPES,
+            redirect_uri=_google_redirect_uri(),
+        )
     except RuntimeError as exc:
         current_app.logger.error("Falha ao configurar OAuth: %s", exc)
         flash(str(exc), "danger")
@@ -261,61 +261,66 @@ def google_authorize():
 @bp.get("/admin/google/callback")
 @admin_required
 def google_callback():
-    """Recebe o retorno do Google e apresenta o refresh token uma única vez."""
     expected_state = session.get("google_oauth_state")
-    returned_state = request.args.get("state", "")
 
-    if (
-        not expected_state
-        or not hmac.compare_digest(expected_state, returned_state)
-    ):
-        session.pop("google_oauth_state", None)
-        flash("A autorização expirou ou o estado OAuth é inválido.", "danger")
-        return redirect(url_for("main.admin_dashboard"))
-
-    if request.args.get("error"):
-        session.pop("google_oauth_state", None)
-        flash("A autorização do Google foi cancelada.", "warning")
-        return redirect(url_for("main.admin_dashboard"))
-
-    try:
-        flow = Flow.from_client_config(
-            _google_oauth_client_config(),
-            scopes=DRIVE_SCOPES,
-            redirect_uri=_google_redirect_uri(),
-        )
-        callback_url = url_for(
-            "main.google_callback",
-            _external=True,
-            _scheme="https",
-        )
-
-        if request.query_string:
-            callback_url = f"{callback_url}?" f"{request.query_string.decode('utf-8')}"
-
-            flow.fetch_token(
-            authorization_response=callback_url,
-        )
-    except Exception:
-        current_app.logger.exception("Falha ao concluir o OAuth do Google")
-        session.pop("google_oauth_state", None)
-        flash("Não foi possível concluir a autorização do Google.", "danger")
-        return redirect(url_for("main.admin_dashboard"))
-
-    session.pop("google_oauth_state", None)
-    session.pop("google_oauth_state", None)
-    refresh_token = flow.credentials.refresh_token
-
-    if not refresh_token:
+    if not expected_state:
         flash(
-            "O Google não retornou um refresh token. Revogue o acesso anterior "
-            "e tente autorizar novamente.",
+            "A sessão de autorização expirou. Tente novamente.",
             "danger",
         )
         return redirect(url_for("main.admin_dashboard"))
 
-    response = Response(
-        render_template("google_oauth_result.html", refresh_token=refresh_token)
+    flow = Flow.from_client_config(
+        _google_oauth_client_config(),
+        scopes=DRIVE_SCOPES,
+        state=expected_state,
+        redirect_uri=_google_redirect_uri(),
+    )
+
+    callback_url = url_for(
+        "main.google_callback",
+        _external=True,
+        _scheme="https",
+    )
+
+    if request.query_string:
+        callback_url = (
+            f"{callback_url}?"
+            f"{request.query_string.decode('utf-8')}"
+        )
+
+    try:
+        flow.fetch_token(
+            authorization_response=callback_url,
+        )
+    except Exception:
+        current_app.logger.exception(
+            "Falha ao concluir o OAuth do Google"
+        )
+
+        flash(
+            "Não foi possível concluir a autorização do Google.",
+            "danger",
+        )
+
+        return redirect(url_for("main.admin_dashboard"))
+    finally:
+        session.pop("google_oauth_state", None)
+        session.pop("google_code_verifier", None)
+
+        refresh_token = flow.credentials.refresh_token
+
+    if not refresh_token:
+        flash(
+            "O Google não retornou um refresh token. "
+            "Revogue o acesso anterior e tente novamente.",
+            "danger",
+        )
+        return redirect(url_for("main.admin_dashboard"))
+
+    return render_template(
+        "google_oauth_result.html",
+        refresh_token=refresh_token,
     )
     # O token não deve ser armazenado pelo navegador, proxy ou CDN.
     response.headers["Cache-Control"] = "no-store, max-age=0"
