@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Editar foto | Movimento 7{% endblock %}
+{% block content %}
+<section class="admin-page container">
+  <div class="admin-top">
+    <div>
+      <p class="eyebrow">Gestão</p>
+      <h1>Editar foto</h1>
+    </div>
+    <div class="admin-actions">
+      <a class="button button-small button-ghost" href="{{ url_for('main.gallery_admin') }}">Voltar para a galeria</a>
+    </div>
+  </div>
+
+  <div class="gallery-edit-layout">
+    <article class="gallery-edit-preview">
+      <img src="{{ url_for('main.gallery_media', image_id=image.id) }}" alt="{{ image.alt_text }}">
+      <div>
+        <strong>{{ image.title }}</strong>
+        <p>{{ image.description or 'Sem descrição.' }}</p>
+        <small>Ordem atual: {{ image.display_order }}</small>
+      </div>
+    </article>
+
+    <form class="registration-form gallery-edit-form" method="post">
+      {{ form.hidden_tag() }}
+      <h2>Informações da foto</h2>
+
+      <div class="field field-wide">
+        {{ form.title.label }}
+        {{ form.title(class="input") }}
+        {% for error in form.title.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      </div>
+
+      <div class="field field-wide">
+        {{ form.description.label }}
+        {{ form.description(class="input", rows="5") }}
+        {% for error in form.description.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      </div>
+
+      <div class="field">
+        {{ form.display_order.label }}
+        {{ form.display_order(class="input", min="0", max="9999", step="1") }}
+        {% for error in form.display_order.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+      </div>
+
+      <div class="admin-actions gallery-edit-actions">
+        {{ form.submit(class="button") }}
+        <a class="button button-ghost" href="{{ url_for('main.gallery_admin') }}">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

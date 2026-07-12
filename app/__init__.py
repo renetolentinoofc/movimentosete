@@ -23,6 +23,8 @@ csrf = CSRFProtect()
 def create_app() -> Flask:
     """Cria e configura uma instância da aplicação Flask."""
     load_dotenv()
+
+    # Aceita escopos adicionais já concedidos pela conta sem interromper o OAuth.
     os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
     app = Flask(__name__, instance_relative_config=True)

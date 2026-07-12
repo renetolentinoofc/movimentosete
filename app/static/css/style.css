@@ -981,3 +981,42 @@ td small {
   .gallery-admin-card img { width: 100%; height: 210px; }
   .gallery-admin-actions { grid-template-columns: 1fr 1fr; }
 }
+
+/* Edição dos dados das fotos da galeria */
+.gallery-edit-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  margin-top: 28px;
+}
+.gallery-edit-preview {
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+}
+.gallery-edit-preview img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 14px;
+}
+.gallery-edit-preview div { padding-top: 16px; }
+.gallery-edit-preview strong {
+  display: block;
+  font-size: 1.25rem;
+}
+.gallery-edit-preview p { color: var(--muted); }
+.gallery-edit-preview small { color: var(--muted); }
+.gallery-edit-form { margin: 0; }
+.gallery-edit-actions { justify-content: flex-start; }
+.gallery-admin-actions > a { text-align: center; }
+
+@media (max-width: 800px) {
+  .gallery-edit-layout { grid-template-columns: 1fr; }
+  .gallery-edit-preview img { max-height: 320px; }
+}
+

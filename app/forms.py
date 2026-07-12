@@ -17,6 +17,7 @@ from wtforms import (
 from wtforms.validators import (
     DataRequired,
     Email,
+    InputRequired,
     Length,
     NumberRange,
     Optional,
@@ -131,7 +132,7 @@ class GalleryImageForm(FlaskForm):
         "Ordem de exibição",
         default=0,
         validators=[
-            DataRequired(),
+            InputRequired(),
             NumberRange(min=0, max=9999),
         ],
     )
@@ -142,3 +143,34 @@ class GalleryImageForm(FlaskForm):
     )
 
     submit = SubmitField("Adicionar foto")
+
+
+class GalleryImageEditForm(FlaskForm):
+    """Edita título, descrição e ordem de uma foto cadastrada."""
+
+    title = StringField(
+        "Título",
+        validators=[
+            DataRequired(),
+            Length(max=120),
+        ],
+    )
+
+    description = TextAreaField(
+        "Descrição",
+        validators=[
+            Optional(),
+            Length(max=300),
+        ],
+    )
+
+    display_order = IntegerField(
+        "Ordem de exibição",
+        validators=[
+            InputRequired(),
+            NumberRange(min=0, max=9999),
+        ],
+    )
+
+    submit = SubmitField("Salvar alterações")
+

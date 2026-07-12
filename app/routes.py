@@ -23,7 +23,12 @@ from flask import (
 from google_auth_oauthlib.flow import Flow
 
 from . import db
-from .forms import AdminLoginForm, GalleryImageForm, RegistrationForm
+from .forms import (
+    AdminLoginForm,
+    GalleryImageEditForm,
+    GalleryImageForm,
+    RegistrationForm,
+)
 from .google_drive import (
     DRIVE_SCOPES,
     delete_drive_image,
@@ -53,9 +58,7 @@ def admin_required(view):
 
 @bp.get("/")
 def home():
-    sponsors = (
-        Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
-    )
+    sponsors = Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
     gallery_images = (
         GalleryImage.query.filter_by(active=True)
         .order_by(GalleryImage.display_order.asc(), GalleryImage.created_at.desc())
@@ -102,16 +105,6 @@ def registration_success():
 @bp.get("/privacidade")
 def privacy():
     return render_template("privacy.html")
-
-
-@bp.app_errorhandler(413)
-def upload_too_large(error):
-    current_app.logger.warning("Upload recusado por exceder 8 MB")
-    flash(
-        "A imagem ultrapassa o limite de 8 MB. Reduza o arquivo e tente novamente.",
-        "danger",
-    )
-    return redirect(url_for("main.gallery_admin"))
 
 
 @bp.get("/saude")
@@ -184,51 +177,25 @@ def export_csv():
     writer = csv.writer(output)
     writer.writerow(
         [
-            "ID",
-            "Data",
-            "Nome",
-            "Nome social",
-            "Email",
-            "WhatsApp",
-            "Bairro",
-            "Cidade",
-            "Participação",
-            "Disponibilidade",
-            "Instagram",
-            "Portfólio",
-            "Experiência",
-            "Equipamento",
-            "Acessibilidade",
-            "Status",
+            "ID", "Data", "Nome", "Nome social", "Email", "WhatsApp", "Bairro",
+            "Cidade", "Participação", "Disponibilidade", "Instagram", "Portfólio",
+            "Experiência", "Equipamento", "Acessibilidade", "Status",
         ]
     )
     for item in Registration.query.order_by(Registration.created_at).all():
         writer.writerow(
             [
-                item.id,
-                item.created_at.isoformat(),
-                item.full_name,
-                item.social_name or "",
-                item.email,
-                item.phone,
-                item.neighborhood,
-                item.city,
-                item.participation_type,
-                item.availability,
-                item.instagram or "",
-                item.portfolio_url or "",
-                item.experience,
-                item.equipment_needed or "",
-                item.accessibility_needs or "",
-                item.status,
+                item.id, item.created_at.isoformat(), item.full_name,
+                item.social_name or "", item.email, item.phone, item.neighborhood,
+                item.city, item.participation_type, item.availability,
+                item.instagram or "", item.portfolio_url or "", item.experience,
+                item.equipment_needed or "", item.accessibility_needs or "", item.status,
             ]
         )
     return Response(
         output.getvalue(),
         mimetype="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"
-        },
+        headers={"Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"},
     )
 
 
@@ -236,7 +203,6 @@ def export_csv():
 # Google OAuth: o refresh token é salvo criptografado no PostgreSQL.
 # Assim, não é necessário editar o Environment nem disparar outro deploy.
 # ---------------------------------------------------------------------------
-
 
 def _google_oauth_client_config() -> dict:
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -280,7 +246,6 @@ def google_authorize():
 
     authorization_url, state = flow.authorization_url(
         access_type="offline",
-        include_granted_scopes="false",
         prompt="consent",
     )
     session["google_oauth_state"] = state
@@ -324,22 +289,9 @@ def google_callback():
     return redirect(url_for("main.gallery_admin"))
 
 
-@bp.post("/admin/google/reconectar")
-@admin_required
-def google_reconnect():
-    """Apaga o token anterior e inicia uma autorização com os escopos atuais."""
-    clear_refresh_token()
-    session.pop("google_oauth_state", None)
-    flash(
-        "A autorização anterior foi removida. Conecte o Google Drive novamente.", "info"
-    )
-    return redirect(url_for("main.google_authorize"))
-
-
 # ---------------------------------------------------------------------------
 # Galeria administrativa
 # ---------------------------------------------------------------------------
-
 
 @bp.route("/admin/galeria", methods=["GET", "POST"])
 @admin_required
@@ -347,24 +299,22 @@ def gallery_admin():
     form = GalleryImageForm()
     connected = google_drive_is_connected()
 
-    if request.method == "POST":
-        current_app.logger.info(
-            "Upload de galeria recebido: filename=%s content_length=%s",
-            getattr(form.image.data, "filename", None),
-            request.content_length,
-        )
-
     if form.validate_on_submit():
         if not connected:
             flash("Conecte o Google Drive antes de enviar uma foto.", "warning")
             return redirect(url_for("main.gallery_admin"))
 
         try:
+            current_app.logger.info(
+                "Upload de galeria recebido: filename=%s content_length=%s",
+                getattr(form.image.data, "filename", ""),
+                request.content_length,
+            )
             folder = get_gallery_folder_info()
             current_app.logger.info(
                 "Pasta do Google Drive validada: id=%s nome=%s",
-                folder["id"],
-                folder["name"],
+                folder.get("id"),
+                folder.get("name"),
             )
             uploaded = upload_gallery_image(form.image.data, form.title.data)
             image = GalleryImage(
@@ -373,20 +323,23 @@ def gallery_admin():
                 alt_text=form.alt_text.data.strip(),
                 drive_file_id=uploaded["id"],
                 mime_type=uploaded["mime_type"],
-                display_order=form.display_order.data,
+                display_order=form.display_order.data or 0,
                 active=bool(form.active.data),
             )
             db.session.add(image)
             db.session.commit()
             flash("Foto adicionada à galeria.", "success")
             return redirect(url_for("main.gallery_admin"))
-        except Exception as exc:
+        except Exception:
             db.session.rollback()
             current_app.logger.exception("Falha ao enviar foto para o Google Drive")
-            flash(f"Não foi possível enviar a foto: {exc}", "danger")
+            flash("Não foi possível enviar a foto. Consulte os logs do Render.", "danger")
     elif request.method == "POST":
-        current_app.logger.warning("Formulário da galeria inválido: %s", form.errors)
-        flash("Revise os campos do formulário antes de enviar.", "warning")
+        current_app.logger.warning(
+            "Formulário da galeria inválido: %s",
+            form.errors,
+        )
+        flash("Revise os campos indicados antes de enviar a foto.", "warning")
 
     images = GalleryImage.query.order_by(
         GalleryImage.display_order.asc(), GalleryImage.created_at.desc()
@@ -396,6 +349,40 @@ def gallery_admin():
         form=form,
         images=images,
         drive_connected=connected,
+    )
+
+
+@bp.route(
+    "/admin/galeria/<int:image_id>/editar",
+    methods=["GET", "POST"],
+)
+@admin_required
+def gallery_edit(image_id: int):
+    """Permite editar os metadados de uma foto sem reenviá-la ao Drive."""
+    image = db.get_or_404(GalleryImage, image_id)
+    form = GalleryImageEditForm(obj=image)
+
+    if form.validate_on_submit():
+        image.title = form.title.data.strip()
+        image.description = (form.description.data or "").strip() or None
+        image.display_order = form.display_order.data
+
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception(
+                "Falha ao editar dados da foto da galeria"
+            )
+            flash("Não foi possível salvar as alterações.", "danger")
+        else:
+            flash("Foto atualizada com sucesso.", "success")
+            return redirect(url_for("main.gallery_admin"))
+
+    return render_template(
+        "admin_gallery_edit.html",
+        form=form,
+        image=image,
     )
 
 
@@ -447,14 +434,3 @@ def gallery_media(image_id: int):
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
     return response
-
-
-@bp.post("/admin/google/desconectar")
-@admin_required
-def google_disconnect():
-    delete_refresh_token()
-    flash(
-        "Google Drive desconectado. Faça uma nova autorização.",
-        "info",
-    )
-    return redirect(url_for("main.gallery_admin"))

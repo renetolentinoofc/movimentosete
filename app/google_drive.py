@@ -65,30 +65,6 @@ def google_drive_is_connected() -> bool:
         return False
 
 
-def clear_refresh_token() -> None:
-    """Remove a autorização persistida para permitir uma nova conexão."""
-    setting = db.session.get(AppSetting, REFRESH_TOKEN_KEY)
-    if setting is not None:
-        db.session.delete(setting)
-        db.session.commit()
-
-
-def get_gallery_folder_info() -> dict[str, str]:
-    """Confirma que a pasta existe e que a conta autorizada consegue acessá-la."""
-    folder_id = get_gallery_folder_id()
-    result = (
-        get_drive_service()
-        .files()
-        .get(fileId=folder_id, fields="id,name,mimeType,trashed")
-        .execute()
-    )
-    if result.get("trashed"):
-        raise RuntimeError("A pasta configurada está na lixeira do Google Drive.")
-    if result.get("mimeType") != "application/vnd.google-apps.folder":
-        raise RuntimeError("GOOGLE_DRIVE_GALLERY_FOLDER_ID não aponta para uma pasta.")
-    return {"id": result["id"], "name": result.get("name", "Galeria")}
-
-
 def get_google_credentials() -> Credentials:
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
@@ -112,9 +88,7 @@ def get_google_credentials() -> Credentials:
 
 
 def get_drive_service() -> Any:
-    return build(
-        "drive", "v3", credentials=get_google_credentials(), cache_discovery=False
-    )
+    return build("drive", "v3", credentials=get_google_credentials(), cache_discovery=False)
 
 
 def get_gallery_folder_id() -> str:
@@ -122,6 +96,28 @@ def get_gallery_folder_id() -> str:
     if not folder_id:
         raise RuntimeError("GOOGLE_DRIVE_GALLERY_FOLDER_ID não foi configurado.")
     return folder_id
+
+
+def get_gallery_folder_info() -> dict[str, Any]:
+    """Valida a pasta configurada para a galeria e retorna seus dados."""
+    folder = (
+        get_drive_service()
+        .files()
+        .get(
+            fileId=get_gallery_folder_id(),
+            fields="id,name,mimeType,trashed",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+
+    if folder.get("mimeType") != "application/vnd.google-apps.folder":
+        raise RuntimeError(
+            "GOOGLE_DRIVE_GALLERY_FOLDER_ID não aponta para uma pasta."
+        )
+    if folder.get("trashed"):
+        raise RuntimeError("A pasta configurada está na lixeira do Google Drive.")
+    return folder
 
 
 def optimize_image(uploaded_file) -> tuple[io.BytesIO, str]:
@@ -138,11 +134,10 @@ def optimize_image(uploaded_file) -> tuple[io.BytesIO, str]:
 
 def upload_gallery_image(uploaded_file, title: str) -> dict[str, str]:
     image_stream, mime_type = optimize_image(uploaded_file)
-    folder = get_gallery_folder_info()
     service = get_drive_service()
     metadata = {
         "name": f"{title.strip() or 'foto-galeria'}.webp",
-        "parents": [folder["id"]],
+        "parents": [get_gallery_folder_id()],
     }
     media = MediaIoBaseUpload(image_stream, mimetype=mime_type, resumable=False)
     result = (
@@ -167,11 +162,3 @@ def download_drive_image(file_id: str) -> io.BytesIO:
 
 def delete_drive_image(file_id: str) -> None:
     get_drive_service().files().delete(fileId=file_id).execute()
-
-
-def delete_refresh_token() -> None:
-    setting = db.session.get(AppSetting, REFRESH_TOKEN_KEY)
-
-    if setting is not None:
-        db.session.delete(setting)
-        db.session.commit()
