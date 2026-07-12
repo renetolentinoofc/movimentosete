@@ -46,7 +46,9 @@
     <form method="post" action="{{ url_for('main.google_disconnect') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
 
-      <button type="submit">Desconectar Google Drive</button>
+      <button class="button button-small button-ghost" type="submit">
+        Desconectar Google Drive
+      </button>
     </form>
     {% endif %}
   </div>
