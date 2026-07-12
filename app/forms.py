@@ -1,16 +1,27 @@
 """Formulários e validações do site."""
 
 from flask_wtf import FlaskForm
+from flask_wtf.file import FileAllowed, FileField, FileRequired
+
 from wtforms import (
     BooleanField,
     EmailField,
+    IntegerField,
     PasswordField,
     SelectField,
     StringField,
     SubmitField,
     TextAreaField,
 )
-from wtforms.validators import DataRequired, Email, Length, Optional, URL
+
+from wtforms.validators import (
+    DataRequired,
+    Email,
+    Length,
+    NumberRange,
+    Optional,
+    URL,
+)
 
 PARTICIPATION_CHOICES = [
     ("barbeiro", "Barbeiro(a)"),
@@ -81,27 +92,53 @@ class AdminLoginForm(FlaskForm):
 class GalleryImageForm(FlaskForm):
     """Formulário administrativo para inserir fotos na galeria."""
 
-    from flask_wtf.file import FileAllowed, FileField, FileRequired
-    from wtforms import IntegerField
-    from wtforms.validators import NumberRange
-
     image = FileField(
         "Imagem",
         validators=[
             FileRequired(),
-            FileAllowed(["jpg", "jpeg", "png", "webp"], "Use JPG, PNG ou WebP."),
+            FileAllowed(
+                ["jpg", "jpeg", "png", "webp"],
+                "Use JPG, PNG ou WebP.",
+            ),
         ],
     )
-    title = StringField("Título", validators=[DataRequired(), Length(max=120)])
-    description = TextAreaField("Descrição", validators=[Optional(), Length(max=300)])
+
+    title = StringField(
+        "Título",
+        validators=[
+            DataRequired(),
+            Length(max=120),
+        ],
+    )
+
+    description = TextAreaField(
+        "Descrição",
+        validators=[
+            Optional(),
+            Length(max=300),
+        ],
+    )
+
     alt_text = StringField(
         "Texto alternativo",
-        validators=[DataRequired(), Length(max=180)],
+        validators=[
+            DataRequired(),
+            Length(max=180),
+        ],
     )
+
     display_order = IntegerField(
         "Ordem de exibição",
         default=0,
-        validators=[DataRequired(), NumberRange(min=0, max=9999)],
+        validators=[
+            DataRequired(),
+            NumberRange(min=0, max=9999),
+        ],
     )
-    active = BooleanField("Exibir na galeria", default=True)
+
+    active = BooleanField(
+        "Exibir na galeria",
+        default=True,
+    )
+
     submit = SubmitField("Adicionar foto")
