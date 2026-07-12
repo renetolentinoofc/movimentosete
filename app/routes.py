@@ -238,13 +238,12 @@ def _google_redirect_uri() -> str:
 def google_authorize():
     """Inicia a autorização da conta Google usada pelo Movimento 7."""
     try:
-        flow = Flow.from_client_config(
-            _google_oauth_client_config(),
-            scopes=DRIVE_SCOPES,
-            state=expected_state,
-            redirect_uri=_google_redirect_uri(),
-            code_verifier=code_verifier,
-        )
+            flow = Flow.from_client_config(
+        _google_oauth_client_config(),
+        scopes=DRIVE_SCOPES,
+        redirect_uri=_google_redirect_uri(),
+        autogenerate_code_verifier=True,
+    )
     except RuntimeError as exc:
         current_app.logger.error("Falha ao configurar OAuth: %s", exc)
         flash(str(exc), "danger")
@@ -255,7 +254,6 @@ def google_authorize():
         include_granted_scopes="true",
         prompt="consent",
     )
-    session["google_oauth_state"] = state
     session["google_oauth_state"] = state
     session["google_code_verifier"] = flow.code_verifier
 
@@ -288,7 +286,6 @@ def google_callback():
         flow = Flow.from_client_config(
             _google_oauth_client_config(),
             scopes=DRIVE_SCOPES,
-            state=expected_state,
             redirect_uri=_google_redirect_uri(),
         )
         callback_url = url_for(
