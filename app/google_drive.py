@@ -18,7 +18,9 @@ from PIL import Image, ImageOps
 from . import db
 from .models import AppSetting
 
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive"
+]
 REFRESH_TOKEN_KEY = "google_drive_refresh_token"
 
 
@@ -108,7 +110,6 @@ def get_google_credentials() -> Credentials:
         token_uri="https://oauth2.googleapis.com/token",
         client_id=client_id,
         client_secret=client_secret,
-        scopes=DRIVE_SCOPES,
     )
 
 
@@ -166,3 +167,10 @@ def download_drive_image(file_id: str) -> io.BytesIO:
 
 def delete_drive_image(file_id: str) -> None:
     get_drive_service().files().delete(fileId=file_id).execute()
+
+def delete_refresh_token() -> None:
+    setting = db.session.get(AppSetting, REFRESH_TOKEN_KEY)
+
+    if setting is not None:
+        db.session.delete(setting)
+        db.session.commit()

@@ -27,9 +27,8 @@ from .forms import AdminLoginForm, GalleryImageForm, RegistrationForm
 from .google_drive import (
     DRIVE_SCOPES,
     delete_drive_image,
+    delete_refresh_token,
     download_drive_image,
-    clear_refresh_token,
-    get_gallery_folder_info,
     google_drive_is_connected,
     save_refresh_token,
     upload_gallery_image,
@@ -54,7 +53,9 @@ def admin_required(view):
 
 @bp.get("/")
 def home():
-    sponsors = Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
+    sponsors = (
+        Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
+    )
     gallery_images = (
         GalleryImage.query.filter_by(active=True)
         .order_by(GalleryImage.display_order.asc(), GalleryImage.created_at.desc())
@@ -106,7 +107,10 @@ def privacy():
 @bp.app_errorhandler(413)
 def upload_too_large(error):
     current_app.logger.warning("Upload recusado por exceder 8 MB")
-    flash("A imagem ultrapassa o limite de 8 MB. Reduza o arquivo e tente novamente.", "danger")
+    flash(
+        "A imagem ultrapassa o limite de 8 MB. Reduza o arquivo e tente novamente.",
+        "danger",
+    )
     return redirect(url_for("main.gallery_admin"))
 
 
@@ -180,25 +184,51 @@ def export_csv():
     writer = csv.writer(output)
     writer.writerow(
         [
-            "ID", "Data", "Nome", "Nome social", "Email", "WhatsApp", "Bairro",
-            "Cidade", "Participação", "Disponibilidade", "Instagram", "Portfólio",
-            "Experiência", "Equipamento", "Acessibilidade", "Status",
+            "ID",
+            "Data",
+            "Nome",
+            "Nome social",
+            "Email",
+            "WhatsApp",
+            "Bairro",
+            "Cidade",
+            "Participação",
+            "Disponibilidade",
+            "Instagram",
+            "Portfólio",
+            "Experiência",
+            "Equipamento",
+            "Acessibilidade",
+            "Status",
         ]
     )
     for item in Registration.query.order_by(Registration.created_at).all():
         writer.writerow(
             [
-                item.id, item.created_at.isoformat(), item.full_name,
-                item.social_name or "", item.email, item.phone, item.neighborhood,
-                item.city, item.participation_type, item.availability,
-                item.instagram or "", item.portfolio_url or "", item.experience,
-                item.equipment_needed or "", item.accessibility_needs or "", item.status,
+                item.id,
+                item.created_at.isoformat(),
+                item.full_name,
+                item.social_name or "",
+                item.email,
+                item.phone,
+                item.neighborhood,
+                item.city,
+                item.participation_type,
+                item.availability,
+                item.instagram or "",
+                item.portfolio_url or "",
+                item.experience,
+                item.equipment_needed or "",
+                item.accessibility_needs or "",
+                item.status,
             ]
         )
     return Response(
         output.getvalue(),
         mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"},
+        headers={
+            "Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"
+        },
     )
 
 
@@ -206,6 +236,7 @@ def export_csv():
 # Google OAuth: o refresh token é salvo criptografado no PostgreSQL.
 # Assim, não é necessário editar o Environment nem disparar outro deploy.
 # ---------------------------------------------------------------------------
+
 
 def _google_oauth_client_config() -> dict:
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -299,13 +330,16 @@ def google_reconnect():
     """Apaga o token anterior e inicia uma autorização com os escopos atuais."""
     clear_refresh_token()
     session.pop("google_oauth_state", None)
-    flash("A autorização anterior foi removida. Conecte o Google Drive novamente.", "info")
+    flash(
+        "A autorização anterior foi removida. Conecte o Google Drive novamente.", "info"
+    )
     return redirect(url_for("main.google_authorize"))
 
 
 # ---------------------------------------------------------------------------
 # Galeria administrativa
 # ---------------------------------------------------------------------------
+
 
 @bp.route("/admin/galeria", methods=["GET", "POST"])
 @admin_required
@@ -413,3 +447,14 @@ def gallery_media(image_id: int):
     )
     response.headers["Cache-Control"] = "public, max-age=3600"
     return response
+
+
+@bp.post("/admin/google/desconectar")
+@admin_required
+def google_disconnect():
+    delete_refresh_token()
+    flash(
+        "Google Drive desconectado. Faça uma nova autorização.",
+        "info",
+    )
+    return redirect(url_for("main.gallery_admin"))

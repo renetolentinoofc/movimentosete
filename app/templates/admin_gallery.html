@@ -1,5 +1,4 @@
-{% extends "base.html" %}
-{% block title %}Galeria | Movimento 7{% endblock %}
+{% extends "base.html" %} {% block title %}Galeria | Movimento 7{% endblock %}
 {% block content %}
 <section class="admin-page container">
   <div class="admin-top">
@@ -8,9 +7,13 @@
       <h1>Galeria</h1>
     </div>
     <div class="admin-actions">
-      <a class="button button-small button-ghost" href="{{ url_for('main.admin_dashboard') }}">Inscrições</a>
+      <a
+        class="button button-small button-ghost"
+        href="{{ url_for('main.admin_dashboard') }}"
+        >Inscrições</a
+      >
       <form method="post" action="{{ url_for('main.admin_logout') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button class="button button-small button-ghost">Sair</button>
       </form>
     </div>
@@ -18,55 +21,116 @@
 
   <div class="drive-status {% if drive_connected %}is-connected{% endif %}">
     <div>
-      <strong>{% if drive_connected %}Google Drive conectado{% else %}Google Drive não conectado{% endif %}</strong>
-      <p>{% if drive_connected %}As fotos enviadas pelo painel serão armazenadas na pasta configurada do projeto.{% else %}Faça a conexão uma única vez para liberar o envio de fotos.{% endif %}</p>
+      <strong
+        >{% if drive_connected %}Google Drive conectado{% else %}Google Drive
+        não conectado{% endif %}</strong
+      >
+      <p>
+        {% if drive_connected %}As fotos enviadas pelo painel serão armazenadas
+        na pasta configurada do projeto.{% else %}Faça a conexão uma única vez
+        para liberar o envio de fotos.{% endif %}
+      </p>
     </div>
     {% if not drive_connected %}
-      <a class="button button-small" href="{{ url_for('main.google_authorize') }}">Conectar Google Drive</a>
+    <a class="button button-small" href="{{ url_for('main.google_authorize') }}"
+      >Conectar Google Drive</a
+    >
     {% else %}
-      <form method="post" action="{{ url_for('main.google_reconnect') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="button button-small button-ghost" type="submit">Reconectar Google Drive</button>
-      </form>
+    <form method="post" action="{{ url_for('main.google_reconnect') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button class="button button-small button-ghost" type="submit">
+        Reconectar Google Drive
+      </button>
+    </form>
+
+    <form method="post" action="{{ url_for('main.google_disconnect') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+      <button type="submit">Desconectar Google Drive</button>
+    </form>
     {% endif %}
   </div>
 
   <div class="gallery-admin-layout">
-    <form class="registration-form gallery-upload-form" method="post" enctype="multipart/form-data">
+    <form
+      class="registration-form gallery-upload-form"
+      method="post"
+      enctype="multipart/form-data"
+    >
       {{ form.hidden_tag() }}
       <h2>Adicionar nova foto</h2>
-      <div class="field field-wide">{{ form.image.label }}{{ form.image(class="input", accept="image/jpeg,image/png,image/webp") }}{% for error in form.image.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
-      <div class="field">{{ form.title.label }}{{ form.title(class="input") }}{% for error in form.title.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
-      <div class="field">{{ form.alt_text.label }}{{ form.alt_text(class="input") }}{% for error in form.alt_text.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
-      <div class="field field-wide">{{ form.description.label }}{{ form.description(class="input", rows="4") }}{% for error in form.description.errors %}<small class="field-error">{{ error }}</small>{% endfor %}</div>
-      <div class="field">{{ form.display_order.label }}{{ form.display_order(class="input") }}</div>
-      <label class="check-field">{{ form.active() }} <span>{{ form.active.label.text }}</span></label>
+      <div class="field field-wide">
+        {{ form.image.label }}{{ form.image(class="input",
+        accept="image/jpeg,image/png,image/webp") }}{% for error in
+        form.image.errors %}<small class="field-error">{{ error }}</small>{%
+        endfor %}
+      </div>
+      <div class="field">
+        {{ form.title.label }}{{ form.title(class="input") }}{% for error in
+        form.title.errors %}<small class="field-error">{{ error }}</small>{%
+        endfor %}
+      </div>
+      <div class="field">
+        {{ form.alt_text.label }}{{ form.alt_text(class="input") }}{% for error
+        in form.alt_text.errors %}<small class="field-error">{{ error }}</small
+        >{% endfor %}
+      </div>
+      <div class="field field-wide">
+        {{ form.description.label }}{{ form.description(class="input", rows="4")
+        }}{% for error in form.description.errors %}<small class="field-error"
+          >{{ error }}</small
+        >{% endfor %}
+      </div>
+      <div class="field">
+        {{ form.display_order.label }}{{ form.display_order(class="input") }}
+      </div>
+      <label class="check-field"
+        >{{ form.active() }} <span>{{ form.active.label.text }}</span></label
+      >
       {{ form.submit(class="button", disabled=not drive_connected) }}
     </form>
 
     <div class="gallery-admin-list">
       <h2>Fotos cadastradas</h2>
       {% for image in images %}
-        <article class="gallery-admin-card">
-          <img src="{{ url_for('main.gallery_media', image_id=image.id) }}" alt="{{ image.alt_text }}" loading="lazy">
-          <div>
-            <strong>{{ image.title }}</strong>
-            <p>{{ image.description or 'Sem descrição.' }}</p>
-            <small>Ordem: {{ image.display_order }} · {% if image.active %}Visível{% else %}Oculta{% endif %}</small>
-          </div>
-          <div class="gallery-admin-actions">
-            <form method="post" action="{{ url_for('main.gallery_toggle', image_id=image.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button-small button-ghost">{% if image.active %}Ocultar{% else %}Exibir{% endif %}</button>
-            </form>
-            <form method="post" action="{{ url_for('main.gallery_delete', image_id=image.id) }}" onsubmit="return confirm('Excluir esta foto da galeria e do Google Drive?')">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button-small button-danger">Excluir</button>
-            </form>
-          </div>
-        </article>
+      <article class="gallery-admin-card">
+        <img
+          src="{{ url_for('main.gallery_media', image_id=image.id) }}"
+          alt="{{ image.alt_text }}"
+          loading="lazy"
+        />
+        <div>
+          <strong>{{ image.title }}</strong>
+          <p>{{ image.description or 'Sem descrição.' }}</p>
+          <small
+            >Ordem: {{ image.display_order }} · {% if image.active %}Visível{%
+            else %}Oculta{% endif %}</small
+          >
+        </div>
+        <div class="gallery-admin-actions">
+          <form
+            method="post"
+            action="{{ url_for('main.gallery_toggle', image_id=image.id) }}"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <button class="button button-small button-ghost">
+              {% if image.active %}Ocultar{% else %}Exibir{% endif %}
+            </button>
+          </form>
+          <form
+            method="post"
+            action="{{ url_for('main.gallery_delete', image_id=image.id) }}"
+            onsubmit="
+              return confirm('Excluir esta foto da galeria e do Google Drive?');
+            "
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <button class="button button-small button-danger">Excluir</button>
+          </form>
+        </div>
+      </article>
       {% else %}
-        <div class="empty-state">Nenhuma foto cadastrada.</div>
+      <div class="empty-state">Nenhuma foto cadastrada.</div>
       {% endfor %}
     </div>
   </div>
