@@ -293,7 +293,7 @@ def google_callback():
         if request.query_string:
             callback_url = f"{callback_url}?" f"{request.query_string.decode('utf-8')}"
 
-        flow.fetch_token(
+            flow.fetch_token(
             authorization_response=callback_url,
         )
     except Exception:
