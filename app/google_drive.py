@@ -18,7 +18,7 @@ from PIL import Image, ImageOps
 from . import db
 from .models import AppSetting
 
-DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 REFRESH_TOKEN_KEY = "google_drive_refresh_token"
 
 
@@ -63,6 +63,30 @@ def google_drive_is_connected() -> bool:
         return bool(get_refresh_token())
     except RuntimeError:
         return False
+
+
+def clear_refresh_token() -> None:
+    """Remove a autorização persistida para permitir uma nova conexão."""
+    setting = db.session.get(AppSetting, REFRESH_TOKEN_KEY)
+    if setting is not None:
+        db.session.delete(setting)
+        db.session.commit()
+
+
+def get_gallery_folder_info() -> dict[str, str]:
+    """Confirma que a pasta existe e que a conta autorizada consegue acessá-la."""
+    folder_id = get_gallery_folder_id()
+    result = (
+        get_drive_service()
+        .files()
+        .get(fileId=folder_id, fields="id,name,mimeType,trashed")
+        .execute()
+    )
+    if result.get("trashed"):
+        raise RuntimeError("A pasta configurada está na lixeira do Google Drive.")
+    if result.get("mimeType") != "application/vnd.google-apps.folder":
+        raise RuntimeError("GOOGLE_DRIVE_GALLERY_FOLDER_ID não aponta para uma pasta.")
+    return {"id": result["id"], "name": result.get("name", "Galeria")}
 
 
 def get_google_credentials() -> Credentials:
@@ -113,10 +137,11 @@ def optimize_image(uploaded_file) -> tuple[io.BytesIO, str]:
 
 def upload_gallery_image(uploaded_file, title: str) -> dict[str, str]:
     image_stream, mime_type = optimize_image(uploaded_file)
+    folder = get_gallery_folder_info()
     service = get_drive_service()
     metadata = {
         "name": f"{title.strip() or 'foto-galeria'}.webp",
-        "parents": [get_gallery_folder_id()],
+        "parents": [folder["id"]],
     }
     media = MediaIoBaseUpload(image_stream, mimetype=mime_type, resumable=False)
     result = (

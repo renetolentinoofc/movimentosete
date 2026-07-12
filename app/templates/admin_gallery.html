@@ -23,6 +23,11 @@
     </div>
     {% if not drive_connected %}
       <a class="button button-small" href="{{ url_for('main.google_authorize') }}">Conectar Google Drive</a>
+    {% else %}
+      <form method="post" action="{{ url_for('main.google_reconnect') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button button-small button-ghost" type="submit">Reconectar Google Drive</button>
+      </form>
     {% endif %}
   </div>
 

@@ -28,6 +28,8 @@ from .google_drive import (
     DRIVE_SCOPES,
     delete_drive_image,
     download_drive_image,
+    clear_refresh_token,
+    get_gallery_folder_info,
     google_drive_is_connected,
     save_refresh_token,
     upload_gallery_image,
@@ -99,6 +101,13 @@ def registration_success():
 @bp.get("/privacidade")
 def privacy():
     return render_template("privacy.html")
+
+
+@bp.app_errorhandler(413)
+def upload_too_large(error):
+    current_app.logger.warning("Upload recusado por exceder 8 MB")
+    flash("A imagem ultrapassa o limite de 8 MB. Reduza o arquivo e tente novamente.", "danger")
+    return redirect(url_for("main.gallery_admin"))
 
 
 @bp.get("/saude")
@@ -284,6 +293,16 @@ def google_callback():
     return redirect(url_for("main.gallery_admin"))
 
 
+@bp.post("/admin/google/reconectar")
+@admin_required
+def google_reconnect():
+    """Apaga o token anterior e inicia uma autorização com os escopos atuais."""
+    clear_refresh_token()
+    session.pop("google_oauth_state", None)
+    flash("A autorização anterior foi removida. Conecte o Google Drive novamente.", "info")
+    return redirect(url_for("main.google_authorize"))
+
+
 # ---------------------------------------------------------------------------
 # Galeria administrativa
 # ---------------------------------------------------------------------------
@@ -294,12 +313,25 @@ def gallery_admin():
     form = GalleryImageForm()
     connected = google_drive_is_connected()
 
+    if request.method == "POST":
+        current_app.logger.info(
+            "Upload de galeria recebido: filename=%s content_length=%s",
+            getattr(form.image.data, "filename", None),
+            request.content_length,
+        )
+
     if form.validate_on_submit():
         if not connected:
             flash("Conecte o Google Drive antes de enviar uma foto.", "warning")
             return redirect(url_for("main.gallery_admin"))
 
         try:
+            folder = get_gallery_folder_info()
+            current_app.logger.info(
+                "Pasta do Google Drive validada: id=%s nome=%s",
+                folder["id"],
+                folder["name"],
+            )
             uploaded = upload_gallery_image(form.image.data, form.title.data)
             image = GalleryImage(
                 title=form.title.data.strip(),
@@ -314,10 +346,13 @@ def gallery_admin():
             db.session.commit()
             flash("Foto adicionada à galeria.", "success")
             return redirect(url_for("main.gallery_admin"))
-        except Exception:
+        except Exception as exc:
             db.session.rollback()
             current_app.logger.exception("Falha ao enviar foto para o Google Drive")
-            flash("Não foi possível enviar a foto. Consulte os logs do Render.", "danger")
+            flash(f"Não foi possível enviar a foto: {exc}", "danger")
+    elif request.method == "POST":
+        current_app.logger.warning("Formulário da galeria inválido: %s", form.errors)
+        flash("Revise os campos do formulário antes de enviar.", "warning")
 
     images = GalleryImage.query.order_by(
         GalleryImage.display_order.asc(), GalleryImage.created_at.desc()
