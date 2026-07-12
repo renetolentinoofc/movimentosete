@@ -242,6 +242,7 @@ def google_authorize():
             _google_oauth_client_config(),
             scopes=DRIVE_SCOPES,
             redirect_uri=_google_redirect_uri(),
+            autogenerate_code_verifier=False,
         )
     except RuntimeError as exc:
         current_app.logger.error("Falha ao configurar OAuth: %s", exc)
@@ -253,6 +254,7 @@ def google_authorize():
         include_granted_scopes="true",
         prompt="consent",
     )
+
     session["google_oauth_state"] = state
 
     return redirect(authorization_url)
@@ -275,6 +277,7 @@ def google_callback():
         scopes=DRIVE_SCOPES,
         state=expected_state,
         redirect_uri=_google_redirect_uri(),
+        autogenerate_code_verifier=False,
     )
 
     callback_url = url_for(
