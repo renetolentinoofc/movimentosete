@@ -49,8 +49,6 @@ def create_app() -> Flask:
         SECRET_KEY=os.getenv("SECRET_KEY", "dev-change-me"),
         SQLALCHEMY_DATABASE_URI=database_url,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", "admin-change-me"),
-        # Verifica se a conexão do pool continua válida antes de usá-la.
         SQLALCHEMY_ENGINE_OPTIONS={
             "pool_pre_ping": True,
             "pool_recycle": 280,
@@ -58,9 +56,12 @@ def create_app() -> Flask:
             "max_overflow": 2,
             "pool_timeout": 30,
         },
+        ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", "admin-change-me"),
+        # Limite inicial para uploads futuros da galeria: 8 MB.
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        # Em produção, cookies de sessão só trafegam por HTTPS.
         SESSION_COOKIE_SECURE=os.getenv("FLASK_DEBUG", "0") != "1",
     )
 

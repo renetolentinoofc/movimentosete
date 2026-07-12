@@ -1,4 +1,4 @@
-"""Rotas públicas, inscrição e painel administrativo."""
+"""Rotas públicas, inscrição, galeria e painel administrativo."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import hmac
 import io
 import os
 from functools import wraps
+
 from flask import (
     Blueprint,
     Response,
@@ -15,16 +16,23 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     session,
     url_for,
 )
-
 from google_auth_oauthlib.flow import Flow
 
 from . import db
-from .google_drive import DRIVE_SCOPES
-from .forms import AdminLoginForm, RegistrationForm
-from .models import Registration, Sponsor
+from .forms import AdminLoginForm, GalleryImageForm, RegistrationForm
+from .google_drive import (
+    DRIVE_SCOPES,
+    delete_drive_image,
+    download_drive_image,
+    google_drive_is_connected,
+    save_refresh_token,
+    upload_gallery_image,
+)
+from .models import GalleryImage, Registration, Sponsor
 
 bp = Blueprint("main", __name__)
 
@@ -44,10 +52,17 @@ def admin_required(view):
 
 @bp.get("/")
 def home():
-    sponsors = (
-        Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
+    sponsors = Sponsor.query.filter_by(active=True).order_by(Sponsor.display_order).all()
+    gallery_images = (
+        GalleryImage.query.filter_by(active=True)
+        .order_by(GalleryImage.display_order.asc(), GalleryImage.created_at.desc())
+        .all()
     )
-    return render_template("index.html", sponsors=sponsors)
+    return render_template(
+        "index.html",
+        sponsors=sponsors,
+        gallery_images=gallery_images,
+    )
 
 
 @bp.route("/inscricao", methods=["GET", "POST"])
@@ -112,7 +127,7 @@ def admin_logout():
     return redirect(url_for("main.home"))
 
 
-@bp.get("/admin")
+@bp.get("/admin", strict_slashes=False)
 @admin_required
 def admin_dashboard():
     status = request.args.get("status", "").strip()
@@ -130,6 +145,7 @@ def admin_dashboard():
         registrations=registrations,
         totals=totals,
         current_status=status,
+        drive_connected=google_drive_is_connected(),
     )
 
 
@@ -155,68 +171,43 @@ def export_csv():
     writer = csv.writer(output)
     writer.writerow(
         [
-            "ID",
-            "Data",
-            "Nome",
-            "Nome social",
-            "Email",
-            "WhatsApp",
-            "Bairro",
-            "Cidade",
-            "Participação",
-            "Disponibilidade",
-            "Instagram",
-            "Portfólio",
-            "Experiência",
-            "Equipamento",
-            "Acessibilidade",
-            "Status",
+            "ID", "Data", "Nome", "Nome social", "Email", "WhatsApp", "Bairro",
+            "Cidade", "Participação", "Disponibilidade", "Instagram", "Portfólio",
+            "Experiência", "Equipamento", "Acessibilidade", "Status",
         ]
     )
     for item in Registration.query.order_by(Registration.created_at).all():
         writer.writerow(
             [
-                item.id,
-                item.created_at.isoformat(),
-                item.full_name,
-                item.social_name or "",
-                item.email,
-                item.phone,
-                item.neighborhood,
-                item.city,
-                item.participation_type,
-                item.availability,
-                item.instagram or "",
-                item.portfolio_url or "",
-                item.experience,
-                item.equipment_needed or "",
-                item.accessibility_needs or "",
-                item.status,
+                item.id, item.created_at.isoformat(), item.full_name,
+                item.social_name or "", item.email, item.phone, item.neighborhood,
+                item.city, item.participation_type, item.availability,
+                item.instagram or "", item.portfolio_url or "", item.experience,
+                item.equipment_needed or "", item.accessibility_needs or "", item.status,
             ]
         )
     return Response(
         output.getvalue(),
         mimetype="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"
-        },
+        headers={"Content-Disposition": "attachment; filename=inscricoes_movimento7.csv"},
     )
 
 
+# ---------------------------------------------------------------------------
+# Google OAuth: o refresh token é salvo criptografado no PostgreSQL.
+# Assim, não é necessário editar o Environment nem disparar outro deploy.
+# ---------------------------------------------------------------------------
+
 def _google_oauth_client_config() -> dict:
-    """Monta a configuração OAuth sem gravar segredos no código."""
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
-
     missing = []
     if not client_id:
         missing.append("GOOGLE_CLIENT_ID")
     if not client_secret:
         missing.append("GOOGLE_CLIENT_SECRET")
-
     if missing:
         raise RuntimeError("Variáveis do Google ausentes: " + ", ".join(missing))
-
     return {
         "web": {
             "client_id": client_id,
@@ -228,7 +219,6 @@ def _google_oauth_client_config() -> dict:
 
 
 def _google_redirect_uri() -> str:
-    """Retorna o callback exato usado no Google Cloud."""
     scheme = "http" if current_app.debug else "https"
     return url_for("main.google_callback", _external=True, _scheme=scheme)
 
@@ -236,7 +226,6 @@ def _google_redirect_uri() -> str:
 @bp.get("/admin/google/autorizar")
 @admin_required
 def google_authorize():
-    """Inicia a autorização da conta Google usada pelo Movimento 7."""
     try:
         flow = Flow.from_client_config(
             _google_oauth_client_config(),
@@ -247,16 +236,14 @@ def google_authorize():
     except RuntimeError as exc:
         current_app.logger.error("Falha ao configurar OAuth: %s", exc)
         flash(str(exc), "danger")
-        return redirect(url_for("main.admin_dashboard"))
+        return redirect(url_for("main.gallery_admin"))
 
     authorization_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
-
     session["google_oauth_state"] = state
-
     return redirect(authorization_url)
 
 
@@ -264,13 +251,9 @@ def google_authorize():
 @admin_required
 def google_callback():
     expected_state = session.get("google_oauth_state")
-
     if not expected_state:
-        flash(
-            "A sessão de autorização expirou. Tente novamente.",
-            "danger",
-        )
-        return redirect(url_for("main.admin_dashboard"))
+        flash("A sessão de autorização expirou. Tente novamente.", "danger")
+        return redirect(url_for("main.gallery_admin"))
 
     flow = Flow.from_client_config(
         _google_oauth_client_config(),
@@ -280,50 +263,118 @@ def google_callback():
         autogenerate_code_verifier=False,
     )
 
-    callback_url = url_for(
-        "main.google_callback",
-        _external=True,
-        _scheme="https",
-    )
-
+    callback_url = url_for("main.google_callback", _external=True, _scheme="https")
     if request.query_string:
-        callback_url = f"{callback_url}?" f"{request.query_string.decode('utf-8')}"
+        callback_url = f"{callback_url}?{request.query_string.decode('utf-8')}"
 
     try:
-        flow.fetch_token(
-            authorization_response=callback_url,
-        )
+        flow.fetch_token(authorization_response=callback_url)
+        refresh_token = flow.credentials.refresh_token
+        if not refresh_token:
+            raise RuntimeError("O Google não retornou um refresh token.")
+        save_refresh_token(refresh_token)
     except Exception:
         current_app.logger.exception("Falha ao concluir o OAuth do Google")
-
-        flash(
-            "Não foi possível concluir a autorização do Google.",
-            "danger",
-        )
-
-        return redirect(url_for("main.admin_dashboard"))
+        flash("Não foi possível concluir a autorização do Google.", "danger")
+        return redirect(url_for("main.gallery_admin"))
     finally:
         session.pop("google_oauth_state", None)
-        session.pop("google_code_verifier", None)
 
-    refresh_token = flow.credentials.refresh_token
+    flash("Google Drive conectado. Já é possível adicionar fotos.", "success")
+    return redirect(url_for("main.gallery_admin"))
 
-    if not refresh_token:
-        flash(
-            "O Google não retornou um refresh token. "
-            "Revogue o acesso anterior e tente novamente.",
-            "danger",
-        )
-        return redirect(url_for("main.admin_dashboard"))
 
-    response = current_app.make_response(
-        render_template(
-            "google_oauth_result.html",
-            refresh_token=refresh_token,
-        )
+# ---------------------------------------------------------------------------
+# Galeria administrativa
+# ---------------------------------------------------------------------------
+
+@bp.route("/admin/galeria", methods=["GET", "POST"])
+@admin_required
+def gallery_admin():
+    form = GalleryImageForm()
+    connected = google_drive_is_connected()
+
+    if form.validate_on_submit():
+        if not connected:
+            flash("Conecte o Google Drive antes de enviar uma foto.", "warning")
+            return redirect(url_for("main.gallery_admin"))
+
+        try:
+            uploaded = upload_gallery_image(form.image.data, form.title.data)
+            image = GalleryImage(
+                title=form.title.data.strip(),
+                description=(form.description.data or "").strip() or None,
+                alt_text=form.alt_text.data.strip(),
+                drive_file_id=uploaded["id"],
+                mime_type=uploaded["mime_type"],
+                display_order=form.display_order.data,
+                active=bool(form.active.data),
+            )
+            db.session.add(image)
+            db.session.commit()
+            flash("Foto adicionada à galeria.", "success")
+            return redirect(url_for("main.gallery_admin"))
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Falha ao enviar foto para o Google Drive")
+            flash("Não foi possível enviar a foto. Consulte os logs do Render.", "danger")
+
+    images = GalleryImage.query.order_by(
+        GalleryImage.display_order.asc(), GalleryImage.created_at.desc()
+    ).all()
+    return render_template(
+        "admin_gallery.html",
+        form=form,
+        images=images,
+        drive_connected=connected,
     )
 
-    response.headers["Cache-Control"] = "no-store, max-age=0"
-    response.headers["Pragma"] = "no-cache"
 
+@bp.post("/admin/galeria/<int:image_id>/alternar")
+@admin_required
+def gallery_toggle(image_id: int):
+    image = db.get_or_404(GalleryImage, image_id)
+    image.active = not image.active
+    db.session.commit()
+    flash("Visibilidade da foto atualizada.", "success")
+    return redirect(url_for("main.gallery_admin"))
+
+
+@bp.post("/admin/galeria/<int:image_id>/excluir")
+@admin_required
+def gallery_delete(image_id: int):
+    image = db.get_or_404(GalleryImage, image_id)
+    try:
+        delete_drive_image(image.drive_file_id)
+    except Exception:
+        current_app.logger.exception("Falha ao excluir arquivo do Google Drive")
+        flash("O arquivo não pôde ser excluído do Drive.", "danger")
+        return redirect(url_for("main.gallery_admin"))
+
+    db.session.delete(image)
+    db.session.commit()
+    flash("Foto excluída da galeria.", "success")
+    return redirect(url_for("main.gallery_admin"))
+
+
+@bp.get("/galeria/imagem/<int:image_id>")
+def gallery_media(image_id: int):
+    image = db.get_or_404(GalleryImage, image_id)
+    if not image.active and not session.get("is_admin"):
+        return Response(status=404)
+
+    try:
+        stream = download_drive_image(image.drive_file_id)
+    except Exception:
+        current_app.logger.exception("Falha ao carregar imagem da galeria")
+        return Response(status=404)
+
+    response = send_file(
+        stream,
+        mimetype=image.mime_type,
+        download_name=f"galeria-{image.id}.webp",
+        max_age=3600,
+        conditional=True,
+    )
+    response.headers["Cache-Control"] = "public, max-age=3600"
     return response

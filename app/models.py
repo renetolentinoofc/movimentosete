@@ -1,7 +1,9 @@
 """Modelos persistidos no PostgreSQL do Render ou no SQLite local."""
 
 from __future__ import annotations
+
 from datetime import datetime, timezone
+
 from . import db
 
 
@@ -41,3 +43,40 @@ class Sponsor(db.Model):
     website_url = db.Column(db.String(300))
     display_order = db.Column(db.Integer, nullable=False, default=0)
     active = db.Column(db.Boolean, nullable=False, default=True)
+
+
+class AppSetting(db.Model):
+    """Segredos e configurações persistentes da aplicação.
+
+    Valores sensíveis são criptografados antes de serem gravados. Isso evita
+    depender de uma nova variável no Render após o fluxo OAuth.
+    """
+
+    __tablename__ = "app_settings"
+
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class GalleryImage(db.Model):
+    __tablename__ = "gallery_images"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(300))
+    alt_text = db.Column(db.String(180), nullable=False)
+    drive_file_id = db.Column(db.String(255), nullable=False, unique=True)
+    mime_type = db.Column(db.String(80), nullable=False, default="image/webp")
+    display_order = db.Column(db.Integer, nullable=False, default=0, index=True)
+    active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )

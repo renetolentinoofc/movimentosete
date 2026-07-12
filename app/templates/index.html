@@ -126,15 +126,19 @@ endblock %} {% block content %}
   <div class="container">
     <p class="eyebrow reveal">Atmosfera</p>
     <div class="gallery-grid">
-      <div class="gallery-tile tile-1 reveal">
-        <strong>Encontro</strong><span>Comunidade em primeiro plano</span>
-      </div>
-      <div class="gallery-tile tile-2 reveal">
-        <strong>Criação</strong><span>Arte que nasce no território</span>
-      </div>
-      <div class="gallery-tile tile-3 reveal">
-        <strong>Movimento</strong><span>Esporte, dança e presença</span>
-      </div>
+      {% for image in gallery_images %}
+      <figure class="gallery-photo reveal">
+        <img src="{{ url_for('main.gallery_media', image_id=image.id) }}" alt="{{ image.alt_text }}" loading="lazy">
+        <figcaption>
+          <strong>{{ image.title }}</strong>
+          {% if image.description %}<span>{{ image.description }}</span>{% endif %}
+        </figcaption>
+      </figure>
+      {% else %}
+      <div class="gallery-tile tile-1 reveal"><strong>Encontro</strong><span>Comunidade em primeiro plano</span></div>
+      <div class="gallery-tile tile-2 reveal"><strong>Criação</strong><span>Arte que nasce no território</span></div>
+      <div class="gallery-tile tile-3 reveal"><strong>Movimento</strong><span>Esporte, dança e presença</span></div>
+      {% endfor %}
     </div>
   </div>
 </section>
