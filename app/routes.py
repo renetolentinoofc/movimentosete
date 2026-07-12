@@ -284,19 +284,14 @@ def google_callback():
     )
 
     if request.query_string:
-        callback_url = (
-            f"{callback_url}?"
-            f"{request.query_string.decode('utf-8')}"
-        )
+        callback_url = f"{callback_url}?" f"{request.query_string.decode('utf-8')}"
 
     try:
         flow.fetch_token(
             authorization_response=callback_url,
         )
     except Exception:
-        current_app.logger.exception(
-            "Falha ao concluir o OAuth do Google"
-        )
+        current_app.logger.exception("Falha ao concluir o OAuth do Google")
 
         flash(
             "Não foi possível concluir a autorização do Google.",
@@ -308,7 +303,7 @@ def google_callback():
         session.pop("google_oauth_state", None)
         session.pop("google_code_verifier", None)
 
-        refresh_token = flow.credentials.refresh_token
+    refresh_token = flow.credentials.refresh_token
 
     if not refresh_token:
         flash(
@@ -318,11 +313,14 @@ def google_callback():
         )
         return redirect(url_for("main.admin_dashboard"))
 
-    return render_template(
-        "google_oauth_result.html",
-        refresh_token=refresh_token,
+    response = current_app.make_response(
+        render_template(
+            "google_oauth_result.html",
+            refresh_token=refresh_token,
+        )
     )
-    # O token não deve ser armazenado pelo navegador, proxy ou CDN.
+
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.headers["Pragma"] = "no-cache"
+
     return response

@@ -1,6 +1,15 @@
 """Formulários e validações do site."""
+
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, EmailField, PasswordField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms import (
+    BooleanField,
+    EmailField,
+    PasswordField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
 from wtforms.validators import DataRequired, Email, Length, Optional, URL
 
 PARTICIPATION_CHOICES = [
@@ -16,22 +25,51 @@ PARTICIPATION_CHOICES = [
 
 
 class RegistrationForm(FlaskForm):
-    full_name = StringField("Nome completo", validators=[DataRequired(), Length(min=3, max=140)])
-    social_name = StringField("Nome social ou artístico", validators=[Optional(), Length(max=140)])
+    full_name = StringField(
+        "Nome completo", validators=[DataRequired(), Length(min=3, max=140)]
+    )
+    social_name = StringField(
+        "Nome social ou artístico", validators=[Optional(), Length(max=140)]
+    )
     email = EmailField("E-mail", validators=[DataRequired(), Email(), Length(max=180)])
     phone = StringField("WhatsApp", validators=[DataRequired(), Length(min=8, max=30)])
     neighborhood = StringField("Bairro", validators=[DataRequired(), Length(max=100)])
-    city = StringField("Cidade", validators=[DataRequired(), Length(max=100)], default="Belo Horizonte")
-    participation_type = SelectField("Como deseja participar?", choices=PARTICIPATION_CHOICES, validators=[DataRequired()])
-    experience = TextAreaField("Conte sobre sua experiência e proposta", validators=[DataRequired(), Length(min=20, max=1800)])
+    city = StringField(
+        "Cidade", validators=[DataRequired(), Length(max=100)], default="Belo Horizonte"
+    )
+    participation_type = SelectField(
+        "Como deseja participar?",
+        choices=PARTICIPATION_CHOICES,
+        validators=[DataRequired()],
+    )
+    experience = TextAreaField(
+        "Conte sobre sua experiência e proposta",
+        validators=[DataRequired(), Length(min=20, max=1800)],
+    )
     instagram = StringField("Instagram", validators=[Optional(), Length(max=120)])
-    portfolio_url = StringField("Link de portfólio ou trabalho", validators=[Optional(), URL(), Length(max=300)])
-    equipment_needed = TextAreaField("Estrutura ou equipamento necessário", validators=[Optional(), Length(max=800)])
-    accessibility_needs = TextAreaField("Necessidades de acessibilidade", validators=[Optional(), Length(max=800)])
-    availability = SelectField("Disponibilidade no dia", choices=[
-        ("integral", "Período integral"), ("manha", "Manhã"), ("tarde", "Tarde"), ("combinar", "A combinar")
-    ], validators=[DataRequired()])
-    lgpd_consent = BooleanField("Autorizo o uso destes dados para organização e contato sobre o evento.", validators=[DataRequired()])
+    portfolio_url = StringField(
+        "Link de portfólio ou trabalho", validators=[Optional(), URL(), Length(max=300)]
+    )
+    equipment_needed = TextAreaField(
+        "Estrutura ou equipamento necessário", validators=[Optional(), Length(max=800)]
+    )
+    accessibility_needs = TextAreaField(
+        "Necessidades de acessibilidade", validators=[Optional(), Length(max=800)]
+    )
+    availability = SelectField(
+        "Disponibilidade no dia",
+        choices=[
+            ("integral", "Período integral"),
+            ("manha", "Manhã"),
+            ("tarde", "Tarde"),
+            ("combinar", "A combinar"),
+        ],
+        validators=[DataRequired()],
+    )
+    lgpd_consent = BooleanField(
+        "Autorizo o uso destes dados para organização e contato sobre o evento.",
+        validators=[DataRequired()],
+    )
     submit = SubmitField("Enviar inscrição")
 
 

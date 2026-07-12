@@ -1,4 +1,5 @@
 """Modelos persistidos no PostgreSQL do Render ou no SQLite local."""
+
 from __future__ import annotations
 from datetime import datetime, timezone
 from . import db
@@ -23,7 +24,11 @@ class Registration(db.Model):
     availability = db.Column(db.String(80), nullable=False)
     lgpd_consent = db.Column(db.Boolean, nullable=False, default=False)
     status = db.Column(db.String(30), nullable=False, default="recebida", index=True)
-    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 
 class Sponsor(db.Model):

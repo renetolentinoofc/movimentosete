@@ -1,47 +1,89 @@
 <!doctype html>
 <html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Movimento 7 - cultura, arte, beleza, educação e transformação comunitária.">
-  <meta name="theme-color" content="#0b0b10">
-  <title>{% block title %}Movimento 7{% endblock %}</title>
-  <link rel="icon" href="{{ url_for('static', filename='img/logo_movimento7.png') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-  <script defer src="{{ url_for('static', filename='js/site.js') }}"></script>
-</head>
-<body>
-  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
-  <header class="site-header" id="topo">
-    <nav class="nav container" aria-label="Navegação principal">
-      <a class="brand" href="{{ url_for('main.home') }}" aria-label="Movimento 7 - início">
-        <img src="{{ url_for('static', filename='img/logo_movimento7.png') }}" alt="Movimento 7">
-      </a>
-      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-menu">Menu</button>
-      <div class="nav-menu" id="nav-menu">
-        <a href="{{ url_for('main.home') }}#essencia">Nossa essência</a>
-        <a href="{{ url_for('main.home') }}#experiencia">O festival</a>
-        <a href="{{ url_for('main.home') }}#publico">Para a comunidade</a>
-        <a href="{{ url_for('main.home') }}#patrocinadores">Parceiros</a>
-        <a class="button button-small" href="{{ url_for('main.register') }}">Inscreva-se</a>
-      </div>
-    </nav>
-  </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Movimento 7 - cultura, arte, beleza, educação e transformação comunitária."
+    />
+    <meta name="theme-color" content="#0b0b10" />
+    <title>{% block title %}Movimento 7{% endblock %}</title>
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='img/logo_movimento7.png') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+    <script defer src="{{ url_for('static', filename='js/site.js') }}"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+    <header class="site-header" id="topo">
+      <nav class="nav container" aria-label="Navegação principal">
+        <a
+          class="brand"
+          href="{{ url_for('main.home') }}"
+          aria-label="Movimento 7 - início"
+        >
+          <img
+            src="{{ url_for('static', filename='img/logo_movimento7.png') }}"
+            alt="Movimento 7"
+          />
+        </a>
+        <button
+          class="nav-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="nav-menu"
+        >
+          Menu
+        </button>
+        <div class="nav-menu" id="nav-menu">
+          <a href="{{ url_for('main.home') }}#essencia">Quem somos</a>
+          <a href="{{ url_for('main.home') }}#experiencia">Experiências</a>
+          <a href="{{ url_for('main.home') }}#publico">Nossa comunidade</a>
+          <a href="{{ url_for('main.home') }}#patrocinadores">Parceiros</a>
+          <a class="button button-small" href="{{ url_for('main.register') }}"
+            >Participe</a
+          >
+        </div>
+      </nav>
+    </header>
 
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}<div class="flash-stack container" aria-live="polite">
-      {% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}
-    </div>{% endif %}
-  {% endwith %}
-
-  <main id="conteudo">{% block content %}{% endblock %}</main>
-  <footer class="footer">
-    <div class="container footer-grid">
-      <div><strong>Movimento 7</strong><p>Cultura, arte, beleza e transformação social.</p></div>
-      <div><strong>Navegação</strong><a href="{{ url_for('main.register') }}">Inscrição</a><a href="{{ url_for('main.privacy') }}">Privacidade</a></div>
-      <div><strong>Organização</strong><p>Belo Horizonte - MG</p><a href="mailto:contato@movimento7.org">contato@movimento7.org</a></div>
+    {% with messages = get_flashed_messages(with_categories=true) %} {% if
+    messages %}
+    <div class="flash-stack container" aria-live="polite">
+      {% for category, message in messages %}
+      <div class="flash flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
     </div>
-    <p class="footer-note">© <span data-current-year></span> Movimento 7. Feito para fortalecer a comunidade.</p>
-  </footer>
-</body>
+    {% endif %} {% endwith %}
+
+    <main id="conteudo">{% block content %}{% endblock %}</main>
+    <footer class="footer">
+      <div class="container footer-grid">
+        <div>
+          <strong>Movimento 7</strong>
+          <p>Cultura, arte, beleza e transformação social.</p>
+        </div>
+        <div>
+          <strong>Navegação</strong
+          ><a href="{{ url_for('main.register') }}">Inscrição</a
+          ><a href="{{ url_for('main.privacy') }}">Privacidade</a>
+        </div>
+        <div>
+          <strong>Organização</strong>
+          <p>Belo Horizonte - MG</p>
+          <a href="mailto:contato@movimento7.org">contato@movimento7.org</a>
+        </div>
+      </div>
+      <p class="footer-note">
+        © <span data-current-year></span> Movimento 7. Feito para fortalecer a
+        comunidade.
+      </p>
+    </footer>
+  </body>
 </html>

@@ -8,8 +8,8 @@ endblock %} {% block content %}
   ></div>
   <div class="hero-overlay"></div>
   <div class="container hero-content reveal">
-    <p class="eyebrow">Festival cultural · edição 01</p>
-    <h1>Sete caminhos.<br /><span>Uma comunidade em movimento.</span></h1>
+    <p class="eyebrow">Festival cultural</p>
+    <h1><span>Uma comunidade em movimento.</span></h1>
     <p>
       Um encontro que aproxima cultura de rua, beleza, educação,
       empreendedorismo, esporte e cuidado coletivo.
@@ -22,25 +22,38 @@ endblock %} {% block content %}
   </div>
   <div class="hero-stats container" aria-label="Pilares do evento">
     <span>Arte</span><span>Beleza</span><span>Educação</span><span>Esporte</span
-    ><span>Comunidade</span><span>Trabalho</span><span>Futuro</span>
+    ><span>Cultura</span><span>Trabalho</span><span>Futuro</span>
   </div>
 </section>
 
 <section class="section" id="essencia">
   <div class="container split reveal">
     <div>
-      <p class="eyebrow">De onde viemos</p>
-      <h2>Criado por quem vive a rua e acredita no poder do encontro.</h2>
+      <p class="eyebrow">Nossa origem</p>
+      <h2>
+        O Movimento 7 transforma comunidades ao gerar oportunidades e fortalecer
+        talentos locais.
+      </h2>
     </div>
     <div class="prose">
       <p>
-        O Movimento 7 nasce da união entre pessoas que transformam talento em
-        oportunidade. Somos uma rede comunitária que cria espaços para
-        expressão, formação e geração de renda.
+        O Movimento 7 é uma organização de impacto social que atua por meio da
+        barbearia, da cultura, da educação, do esporte e da qualificação
+        profissional. Suas ações buscam valorizar talentos locais, ampliar
+        oportunidades e fortalecer o desenvolvimento das comunidades.
       </p>
       <p>
-        O evento valoriza saberes locais e abre palco para barbeiros,
-        trancistas, artistas, atletas, educadores, empreendedores e voluntários.
+        A barbearia é um dos principais pilares da iniciativa, representando
+        profissão, empreendedorismo, autoestima, cuidado e conexão. Em parceria
+        com profissionais, empresas e instituições, o Movimento 7 promove
+        atendimentos, oficinas, eventos e atividades em escolas e espaços
+        comunitários.
+      </p>
+      <p>
+        Mais do que realizar eventos, a organização trabalha para construir uma
+        rede permanente de colaboração. O objetivo é transformar conhecimentos,
+        habilidades e parcerias em oportunidades de crescimento pessoal,
+        profissional e coletivo.
       </p>
     </div>
   </div>
@@ -49,7 +62,6 @@ endblock %} {% block content %}
 <section class="section section-dark" id="experiencia">
   <div class="container">
     <p class="eyebrow reveal">O que acontece</p>
-    <h2 class="reveal">Um festival vivo, feito para participar.</h2>
     <div class="card-grid">
       <article class="feature-card reveal">
         <span>01</span>
@@ -87,12 +99,11 @@ endblock %} {% block content %}
     <div class="poster">
       <img
         src="{{ url_for('static', filename='img/logo_movimento7.png') }}"
-        alt="Movimento 7 Festival Cultural - Edição 01"
+        alt="Movimento 7 Festival Cultural"
       />
     </div>
     <div>
       <p class="eyebrow">Para quem fazemos</p>
-      <h2>Para quem quer ocupar, aprender, ensinar e construir.</h2>
       <p>
         O Movimento 7 é para moradores, famílias, juventudes, artistas
         independentes, profissionais da beleza, pequenos negócios e organizações
@@ -114,7 +125,6 @@ endblock %} {% block content %}
 <section class="section section-dark gallery" id="galeria">
   <div class="container">
     <p class="eyebrow reveal">Atmosfera</p>
-    <h2 class="reveal">Cor, energia e cultura em cada detalhe.</h2>
     <div class="gallery-grid">
       <div class="gallery-tile tile-1 reveal">
         <strong>Encontro</strong><span>Comunidade em primeiro plano</span>
@@ -188,7 +198,7 @@ endblock %} {% block content %}
 
 <section class="section final-cta">
   <div class="container reveal">
-    <p class="eyebrow">Faça parte da edição 01</p>
+    <p class="eyebrow">Faça parte</p>
     <h2>Seu talento pode ser o próximo ponto de encontro.</h2>
     <a class="button" href="{{ url_for('main.register') }}"
       >Preencher inscrição</a
