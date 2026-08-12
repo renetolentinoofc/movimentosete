@@ -1,0 +1,6 @@
+{
+  "name": "@movimento7/ui",
+  "version": "0.1.0",
+  "private": true,
+  "exports": { "./tokens.css": "./src/tokens.css" }
+}

@@ -1,0 +1,314 @@
+openapi: 3.1.0
+info:
+  title: Movimento 7 API
+  version: 0.1.0
+  description: API versionada da plataforma Movimento 7.
+servers:
+  - url: https://movimento7.com.br/api/v1
+    description: Produção via proxy same-origin
+tags:
+  - name: public
+  - name: registrations
+  - name: store
+  - name: auctions
+  - name: admin
+  - name: health
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      operationId: getLiveness
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /site:
+    get:
+      tags: [public]
+      operationId: getSite
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /editions/current:
+    get:
+      tags: [public]
+      operationId: getCurrentEdition
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /categories:
+    get:
+      tags: [public]
+      operationId: listCategories
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /registrations:
+    post:
+      tags: [registrations]
+      operationId: createRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /profiles:
+    get:
+      tags: [public]
+      operationId: listProfiles
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /profiles/{slug}:
+    get:
+      tags: [public]
+      operationId: getProfile
+      parameters: [{ $ref: '#/components/parameters/Slug' }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /gallery:
+    get:
+      tags: [public]
+      operationId: listGallery
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /partners:
+    get:
+      tags: [public]
+      operationId: listPartners
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /contact:
+    post:
+      tags: [public]
+      operationId: createContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContactInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '422': { $ref: '#/components/responses/Error' }
+  /products:
+    get:
+      tags: [store]
+      operationId: listProducts
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /products/{slug}:
+    get:
+      tags: [store]
+      operationId: getProduct
+      parameters: [{ $ref: '#/components/parameters/Slug' }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /carts:
+    post:
+      tags: [store]
+      operationId: createCart
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /carts/items:
+    put:
+      tags: [store]
+      operationId: putCartItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartItemInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+  /checkout:
+    post:
+      tags: [store]
+      operationId: checkout
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /orders/{code}:
+    get:
+      tags: [store]
+      operationId: getOrderStatus
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string }
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /auction-lots:
+    get:
+      tags: [auctions]
+      operationId: listAuctionLots
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /auction-lots/{slug}:
+    get:
+      tags: [auctions]
+      operationId: getAuctionLot
+      parameters: [{ $ref: '#/components/parameters/Slug' }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /auction-lots/{id}/bids:
+    post:
+      tags: [auctions]
+      operationId: createBid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/auth/login:
+    post:
+      tags: [admin]
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /admin/auth/logout:
+    post:
+      tags: [admin]
+      operationId: adminLogout
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/auth/session:
+    get:
+      tags: [admin]
+      operationId: getAdminSession
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+  /admin/dashboard:
+    get:
+      tags: [admin]
+      operationId: getAdminDashboard
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/registrations:
+    get:
+      tags: [admin]
+      operationId: listAdminRegistrations
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/registrations/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateRegistrationStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+components:
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9-]+$' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 100 }
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+  schemas:
+    Envelope:
+      type: object
+      required: [data, meta, error, request_id]
+      properties:
+        data: {}
+        meta: { type: object, additionalProperties: true }
+        error:
+          oneOf: [{ type: 'null' }, { $ref: '#/components/schemas/ApiError' }]
+        request_id: { type: [string, 'null'] }
+    ApiError:
+      type: object
+      required: [code, message, fields]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        fields:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+    RegistrationInput:
+      type: object
+      required: [full_name, phone, city, category, presentation, privacy_accepted, privacy_version]
+      properties:
+        full_name: { type: string, maxLength: 140 }
+        professional_name: { type: string, maxLength: 140 }
+        phone: { type: string }
+        instagram: { type: string }
+        city: { type: string, maxLength: 120 }
+        category: { type: string }
+        presentation: { type: string, maxLength: 3000 }
+        portfolio_url: { type: string, format: uri }
+        privacy_accepted: { type: boolean, const: true }
+        privacy_version: { type: string }
+        website: { type: string, description: Honeypot; deve permanecer vazio. }
+    ContactInput:
+      type: object
+      required: [name, email, subject, message, privacy_accepted, privacy_version]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        subject: { type: string }
+        message: { type: string }
+        privacy_accepted: { type: boolean, const: true }
+        privacy_version: { type: string }
+    CartItemInput:
+      type: object
+      required: [cart_token, variant_id, quantity]
+      properties:
+        cart_token: { type: string }
+        variant_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 0, maximum: 10 }
+  responses:
+    Success:
+      description: Resposta bem-sucedida
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Envelope' }
+    Error:
+      description: Erro esperado e seguro
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Envelope' }

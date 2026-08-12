@@ -1,0 +1,1 @@
+import {AdminLogin}from"@/components/admin-login";export default function LoginPage(){return <section><p className="eyebrow">Acesso restrito</p><h1>Painel</h1><p className="lead">Use sua conta individual. Cinco tentativas inválidas em quinze minutos acionam limitação progressiva.</p><AdminLogin/></section>}
