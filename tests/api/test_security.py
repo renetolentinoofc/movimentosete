@@ -14,7 +14,7 @@ def test_open_redirect_validation():
     assert safe_next_path("/\\evil.test") is None
 
 
-def create_admin(app):
+def create_admin(app, *, must_change_password=False):
     with app.app_context():
         permission = Permission(slug="dashboard.read", description="Dashboard")
         role = Role(
@@ -24,6 +24,7 @@ def create_admin(app):
             email="admin@example.test",
             name="Admin Teste",
             password_hash=generate_password_hash("senha-segura-teste"),
+            must_change_password=must_change_password,
             roles=[role],
         )
         db.session.add(user)
@@ -57,6 +58,49 @@ def test_admin_mutation_rejects_missing_csrf(app, client):
     response = client.post("/api/v1/admin/auth/logout")
     assert response.status_code == 403
     assert response.json["error"]["code"] == "csrf_invalid"
+
+
+def test_first_access_changes_password_and_revokes_session(app, client):
+    create_admin(app, must_change_password=True)
+    login = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "admin@example.test", "password": "senha-segura-teste"},
+    )
+    assert login.status_code == 200
+    assert login.json["data"]["user"]["must_change_password"] is True
+
+    csrf_token = login.json["data"]["csrf_token"]
+    changed = client.post(
+        "/api/v1/admin/auth/change-password",
+        json={
+            "current_password": "senha-segura-teste",
+            "new_password": "nova-senha-segura-teste",
+        },
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    assert changed.status_code == 200
+    assert changed.json["data"] == {
+        "changed": True,
+        "reauthentication_required": True,
+    }
+    assert "Max-Age=0" in changed.headers["Set-Cookie"]
+
+    session = client.get("/api/v1/admin/auth/session")
+    assert session.status_code == 401
+
+    old_password = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "admin@example.test", "password": "senha-segura-teste"},
+    )
+    assert old_password.status_code == 401
+
+    new_password = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "admin@example.test", "password": "nova-senha-segura-teste"},
+    )
+    assert new_password.status_code == 200
+    assert new_password.json["data"]["user"]["must_change_password"] is False
 
 
 def test_lockout_after_five_failures(app, client):
