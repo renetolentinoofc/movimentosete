@@ -74,7 +74,7 @@ services:
       - key: PASSWORD_RESET_MINUTES
         value: "30"
       - key: MEDIA_PROVIDER
-        value: local
+        value: google_drive
       - key: INITIAL_ADMIN_EMAIL
         value: admin@movimento7.com
       - key: INITIAL_ADMIN_NAME
