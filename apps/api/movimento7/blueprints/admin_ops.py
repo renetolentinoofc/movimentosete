@@ -1054,6 +1054,9 @@ def partners_list():
                 "active": row.active,
                 "category": row.category,
                 "level": row.level,
+                "logo_path": row.logo_path,
+                "logo_alt": row.logo_alt,
+                "website_url": row.website_url,
             }
             for row in rows
         ]
