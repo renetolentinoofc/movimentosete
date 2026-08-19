@@ -58,12 +58,24 @@ def test_auction_lot_lifecycle(app, client):
         json={"status": "published"},
         headers={"X-CSRF-Token": csrf},
     )
+    updated = client.patch(
+        f"/api/v1/admin/auction-lots/{lot_id}",
+        json={"title": "Obra revisada", "starting_bid_cents": 12000},
+        headers={"X-CSRF-Token": csrf},
+    )
+    archived = client.delete(
+        f"/api/v1/admin/auction-lots/{lot_id}",
+        headers={"X-CSRF-Token": csrf},
+    )
 
     assert created.status_code == 201
     assert listing.status_code == 200
     assert listing.json["data"][0]["artist_name"] == "Artista de Teste"
     assert published.status_code == 200
     assert published.json["data"]["status"] == "published"
+    assert updated.status_code == 200
+    assert archived.status_code == 200
+    assert archived.json["data"]["status"] == "archived"
 
 
 def test_user_creation_assigns_role(app, client):
@@ -88,6 +100,14 @@ def test_user_creation_assigns_role(app, client):
     assert listing.status_code == 200
     assert listing.json["data"][-1]["email"] == "editora@example.test"
     assert listing.json["data"][-1]["must_change_password"] is True
+    user_id = created.json["data"]["id"]
+    updated = client.patch(
+        f"/api/v1/admin/users/{user_id}",
+        json={"name": "Editora Atualizada", "active": False},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert updated.status_code == 200
+    assert updated.json["data"]["active"] is False
 
 
 def test_privacy_request_status_is_audited(app, client):

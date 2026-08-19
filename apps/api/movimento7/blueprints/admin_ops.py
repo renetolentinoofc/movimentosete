@@ -142,6 +142,60 @@ def auction_lot_status(lot_id: str):
     return success({"id": str(lot.id), "status": lot.status})
 
 
+@bp.patch("/admin/auction-lots/<lot_id>")
+@require_permission("auction.manage")
+def auction_lot_update(lot_id: str):
+    lot = db.session.get(AuctionLot, parse_uuid(lot_id)) if parse_uuid(lot_id) else None
+    if not lot:
+        return failure("not_found", "Lote não encontrado.", status=404)
+    artwork = db.session.get(Artwork, lot.artwork_id)
+    body = body_json()
+    slug = normalized_slug(str(body.get("slug", lot.slug)))
+    if not slug or db.session.scalar(
+        select(AuctionLot.id).where(AuctionLot.slug == slug, AuctionLot.id != lot.id)
+    ):
+        return failure("conflict", "Já existe um lote com este slug.", status=409)
+    try:
+        starting_bid = int(body.get("starting_bid_cents", lot.starting_bid_cents))
+        increment = int(body.get("minimum_increment_cents", lot.minimum_increment_cents))
+    except (TypeError, ValueError):
+        return failure("validation_error", "Valores do lote inválidos.", status=422)
+    if starting_bid < 0 or increment <= 0:
+        return failure("validation_error", "Valores do lote inválidos.", status=422)
+    lot.slug = slug
+    lot.title = str(body.get("title", lot.title)).strip()[:180]
+    lot.starting_bid_cents = starting_bid
+    lot.minimum_increment_cents = increment
+    lot.rules = str(body.get("rules", lot.rules or "")).strip() or None
+    if artwork:
+        artwork.title = lot.title
+        artwork.artist_name = str(body.get("artist_name", artwork.artist_name)).strip()[:140]
+        artwork.technique = (
+            str(body.get("technique", artwork.technique or "")).strip()[:140] or None
+        )
+        artwork.dimensions = (
+            str(body.get("dimensions", artwork.dimensions or "")).strip()[:120] or None
+        )
+        artwork.description = (
+            str(body.get("description", artwork.description or "")).strip() or None
+        )
+    audit("auction_lot.updated", "auction_lot", "Lote de leilão atualizado", str(lot.id))
+    db.session.commit()
+    return success({"id": str(lot.id), "slug": lot.slug, "status": lot.status})
+
+
+@bp.delete("/admin/auction-lots/<lot_id>")
+@require_permission("auction.manage")
+def auction_lot_delete(lot_id: str):
+    lot = db.session.get(AuctionLot, parse_uuid(lot_id)) if parse_uuid(lot_id) else None
+    if not lot:
+        return failure("not_found", "Lote não encontrado.", status=404)
+    lot.status = "archived"
+    audit("auction_lot.archived", "auction_lot", "Lote de leilão arquivado", str(lot.id))
+    db.session.commit()
+    return success({"id": str(lot.id), "status": lot.status})
+
+
 @bp.get("/admin/users")
 @require_permission("users.manage")
 def users_list():
@@ -186,6 +240,56 @@ def user_create():
     audit("admin_user.created", "admin_user", "Usuário administrativo criado", str(row.id))
     db.session.commit()
     return success({"id": str(row.id), "email": row.email}, status=201)
+
+
+@bp.patch("/admin/users/<user_id>")
+@require_permission("users.manage")
+def user_update(user_id: str):
+    row = db.session.get(AdminUser, parse_uuid(user_id)) if parse_uuid(user_id) else None
+    if not row:
+        return failure("not_found", "Usuário não encontrado.", status=404)
+    body = body_json()
+    roles = body.get("roles")
+    if roles is not None:
+        if not isinstance(roles, list):
+            return failure("validation_error", "Papéis inválidos.", status=422)
+        assigned = db.session.scalars(select(Role).where(Role.slug.in_(roles))).all()
+        if len(assigned) != len(set(roles)):
+            return failure("validation_error", "Um ou mais papéis não existem.", status=422)
+        row.roles = assigned
+    if "name" in body and str(body["name"]).strip():
+        row.name = str(body["name"]).strip()[:140]
+    if "active" in body:
+        if row.id == g.current_user.id and not body["active"]:
+            return failure(
+                "validation_error", "Não é possível desativar seu próprio usuário.", status=422
+            )
+        row.active = bool(body["active"])
+        row.deleted_at = None if row.active else datetime.now(UTC)
+        row.session_version += 1
+    audit("admin_user.updated", "admin_user", "Usuário administrativo atualizado", str(row.id))
+    db.session.commit()
+    return success(
+        {"id": str(row.id), "active": row.active, "roles": [role.slug for role in row.roles]}
+    )
+
+
+@bp.delete("/admin/users/<user_id>")
+@require_permission("users.manage")
+def user_delete(user_id: str):
+    row = db.session.get(AdminUser, parse_uuid(user_id)) if parse_uuid(user_id) else None
+    if not row:
+        return failure("not_found", "Usuário não encontrado.", status=404)
+    if row.id == g.current_user.id:
+        return failure(
+            "validation_error", "Não é possível desativar seu próprio usuário.", status=422
+        )
+    row.active = False
+    row.deleted_at = datetime.now(UTC)
+    row.session_version += 1
+    audit("admin_user.archived", "admin_user", "Usuário administrativo desativado", str(row.id))
+    db.session.commit()
+    return success({"id": str(row.id), "active": row.active})
 
 
 @bp.get("/admin/privacy/requests")
@@ -299,6 +403,42 @@ def gallery_album_status(album_id: str):
     return success(gallery_album_data(album))
 
 
+@bp.patch("/admin/gallery/albums/<album_id>")
+@require_permission("gallery.manage")
+def gallery_album_update(album_id: str):
+    album = db.session.get(GalleryAlbum, parse_uuid(album_id)) if parse_uuid(album_id) else None
+    if not album:
+        return failure("not_found", "Álbum não encontrado.", status=404)
+    body = body_json()
+    slug = normalized_slug(str(body.get("slug", album.slug)))
+    if not slug or db.session.scalar(
+        select(GalleryAlbum.id).where(GalleryAlbum.slug == slug, GalleryAlbum.id != album.id)
+    ):
+        return failure("conflict", "Já existe um álbum com este slug.", status=409)
+    title = str(body.get("title", album.title)).strip()
+    if len(title) < 2:
+        return failure("validation_error", "Informe um título válido para o álbum.", status=422)
+    album.title = title[:180]
+    album.slug = slug
+    album.description = str(body.get("description", album.description or "")).strip() or None
+    audit("gallery.album_updated", "gallery_album", "Álbum da galeria atualizado", str(album.id))
+    db.session.commit()
+    return success(gallery_album_data(album))
+
+
+@bp.delete("/admin/gallery/albums/<album_id>")
+@require_permission("gallery.manage")
+def gallery_album_delete(album_id: str):
+    album = db.session.get(GalleryAlbum, parse_uuid(album_id)) if parse_uuid(album_id) else None
+    if not album:
+        return failure("not_found", "Álbum não encontrado.", status=404)
+    album.status = "archived"
+    album.published_at = None
+    audit("gallery.album_archived", "gallery_album", "Álbum da galeria arquivado", str(album.id))
+    db.session.commit()
+    return success(gallery_album_data(album))
+
+
 @bp.patch("/admin/gallery/media/<media_id>/status")
 @require_permission("gallery.manage")
 def gallery_media_status(media_id: str):
@@ -314,6 +454,40 @@ def gallery_media_status(media_id: str):
     )
     db.session.commit()
     return success(gallery_media_data(media))
+
+
+@bp.patch("/admin/gallery/media/<media_id>")
+@require_permission("gallery.manage")
+def gallery_media_update(media_id: str):
+    media = db.session.get(GalleryMedia, parse_uuid(media_id)) if parse_uuid(media_id) else None
+    if not media or media.deleted_at:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    body = body_json()
+    for field, limit in (
+        ("title", 180), ("category", 60), ("caption", 600),
+        ("alt_text", 180), ("credit", 180),
+    ):
+        if field in body:
+            value = str(body[field]).strip()
+            if field in {"title", "category", "alt_text"} and not value:
+                return failure("validation_error", f"{field} é obrigatório.", status=422)
+            setattr(media, field, value[:limit] or None)
+    audit("gallery.media_updated", "gallery_media", "Mídia da galeria atualizada", str(media.id))
+    db.session.commit()
+    return success(gallery_media_data(media))
+
+
+@bp.delete("/admin/gallery/media/<media_id>")
+@require_permission("gallery.manage")
+def gallery_media_delete(media_id: str):
+    media = db.session.get(GalleryMedia, parse_uuid(media_id)) if parse_uuid(media_id) else None
+    if not media or media.deleted_at:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    media.deleted_at = datetime.now(UTC)
+    media.status = "archived"
+    audit("gallery.media_archived", "gallery_media", "Mídia da galeria arquivada", str(media.id))
+    db.session.commit()
+    return success({"id": str(media.id), "status": media.status})
 
 
 def gallery_media_data(row: GalleryMedia) -> dict:
@@ -865,7 +1039,12 @@ def product_media_upload(product_id: str):
 @bp.get("/admin/partners")
 @require_permission("partners.manage")
 def partners_list():
-    rows = db.session.scalars(select(Partner).order_by(Partner.display_order).limit(100)).all()
+    rows = db.session.scalars(
+        select(Partner)
+        .where(Partner.deleted_at.is_(None))
+        .order_by(Partner.display_order)
+        .limit(100)
+    ).all()
     return success(
         [
             {
@@ -903,6 +1082,46 @@ def partner_create():
     return success({"id": str(row.id)}, status=201)
 
 
+@bp.patch("/admin/partners/<partner_id>")
+@require_permission("partners.manage")
+def partner_update(partner_id: str):
+    row = db.session.get(Partner, parse_uuid(partner_id)) if parse_uuid(partner_id) else None
+    if not row or row.deleted_at:
+        return failure("not_found", "Parceiro não encontrado.", status=404)
+    body = body_json()
+    slug = normalized_slug(str(body.get("slug", row.slug)))
+    if not slug or db.session.scalar(
+        select(Partner.id).where(Partner.slug == slug, Partner.id != row.id)
+    ):
+        return failure("conflict", "Já existe um parceiro com este slug.", status=409)
+    if "name" in body and str(body["name"]).strip():
+        row.name = str(body["name"]).strip()[:140]
+    row.slug = slug
+    for field, limit in (("logo_path", 500), ("logo_alt", 180), ("category", 60), ("level", 60)):
+        if field in body:
+            setattr(row, field, str(body[field]).strip()[:limit] or None)
+    if "website_url" in body:
+        row.website_url = safe_http_url(str(body["website_url"]))
+    if "active" in body:
+        row.active = bool(body["active"])
+    audit("partner.updated", "partner", "Parceiro atualizado", str(row.id))
+    db.session.commit()
+    return success({"id": str(row.id), "slug": row.slug, "active": row.active})
+
+
+@bp.delete("/admin/partners/<partner_id>")
+@require_permission("partners.manage")
+def partner_delete(partner_id: str):
+    row = db.session.get(Partner, parse_uuid(partner_id)) if parse_uuid(partner_id) else None
+    if not row or row.deleted_at:
+        return failure("not_found", "Parceiro não encontrado.", status=404)
+    row.active = False
+    row.deleted_at = datetime.now(UTC)
+    audit("partner.archived", "partner", "Parceiro arquivado", str(row.id))
+    db.session.commit()
+    return success({"id": str(row.id), "active": row.active})
+
+
 @bp.post("/admin/content/<key>/publish")
 @require_permission("content.manage")
 def content_publish(key: str):
@@ -937,6 +1156,33 @@ def content_publish(key: str):
     audit("content.published", "content_entry", "Nova versão publicada", str(entry.id))
     db.session.commit()
     return success({"id": str(entry.id), "version": version.version})
+
+
+@bp.get("/admin/content")
+@require_permission("content.manage")
+def content_list():
+    rows = db.session.scalars(select(ContentEntry).order_by(ContentEntry.key).limit(200)).all()
+    return success([
+        {"id": str(row.id), "key": row.key, "title": row.title, "content_type": row.content_type}
+        for row in rows
+    ])
+
+
+@bp.delete("/admin/content/<key>")
+@require_permission("content.manage")
+def content_archive(key: str):
+    entry = db.session.scalar(select(ContentEntry).where(ContentEntry.key == key))
+    if not entry:
+        return failure("not_found", "Conteúdo não encontrado.", status=404)
+    versions = db.session.scalars(
+        select(ContentVersion).where(ContentVersion.entry_id == entry.id)
+    ).all()
+    for version in versions:
+        version.status = "archived"
+    entry.current_version_id = None
+    audit("content.archived", "content_entry", "Conteúdo arquivado", str(entry.id))
+    db.session.commit()
+    return success({"id": str(entry.id), "status": "archived"})
 
 
 @bp.patch("/admin/gallery/order")
