@@ -26,6 +26,11 @@ from ..security import rate_limited, sha256
 from ..validation import normalize_phone, parse_uuid
 
 bp = Blueprint("store", __name__)
+INTERNAL_ONLY_PRODUCT_SLUGS = frozenset({"camiseta-movimento7"})
+
+
+def public_product(product: Product | None) -> bool:
+    return bool(product and product.slug not in INTERNAL_ONLY_PRODUCT_SLUGS)
 
 
 def product_json(product: Product, detail: bool = False) -> dict:
@@ -78,7 +83,10 @@ def product_json(product: Product, detail: bool = False) -> dict:
 def products():
     rows = db.session.scalars(
         select(Product)
-        .where(Product.status == "published")
+        .where(
+            Product.status == "published",
+            Product.slug.not_in(INTERNAL_ONLY_PRODUCT_SLUGS),
+        )
         .order_by(Product.display_order)
         .limit(100)
     ).all()
@@ -88,7 +96,11 @@ def products():
 @bp.get("/products/<slug>")
 def product(slug: str):
     row = db.session.scalar(
-        select(Product).where(Product.slug == slug, Product.status == "published")
+        select(Product).where(
+            Product.slug == slug,
+            Product.status == "published",
+            Product.slug.not_in(INTERNAL_ONLY_PRODUCT_SLUGS),
+        )
     )
     if not row:
         return failure("not_found", "Produto não encontrado.", status=404)
@@ -189,7 +201,13 @@ def put_cart_item():
     variant_id = parse_uuid(body.get("variant_id"))
     variant = db.session.get(ProductVariant, variant_id) if variant_id else None
     product = db.session.get(Product, variant.product_id) if variant else None
-    if not variant or not variant.active or not product or product.status != "published":
+    if (
+        not variant
+        or not variant.active
+        or not product
+        or product.status != "published"
+        or not public_product(product)
+    ):
         return failure("variant_unavailable", "Variação indisponível.", status=404)
     if quantity < 0 or quantity > 10:
         return failure("quantity_invalid", "Escolha uma quantidade entre 0 e 10.", status=422)

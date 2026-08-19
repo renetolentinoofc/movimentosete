@@ -5,6 +5,7 @@ import re
 import secrets
 import unicodedata
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
@@ -23,10 +24,12 @@ from ..models import (
     OAuthState,
     Partner,
     Product,
+    ProductMedia,
     ProductVariant,
     Registration,
 )
 from ..security import audit, require_permission, sha256
+from ..services.media import GoogleDriveMediaProvider, LocalMediaProvider, process_portfolio_image
 from ..validation import aware_utc, parse_uuid, safe_http_url
 
 bp = Blueprint("admin_ops", __name__)
@@ -152,9 +155,7 @@ def edition_data(row: EventEdition) -> dict:
         row.status == "published"
         and row.registration_opens_at
         and row.registration_closes_at
-        and aware_utc(row.registration_opens_at)
-        <= now
-        <= aware_utc(row.registration_closes_at)
+        and aware_utc(row.registration_opens_at) <= now <= aware_utc(row.registration_closes_at)
         and (row.capacity is None or count < row.capacity)
     )
     return {
@@ -197,7 +198,7 @@ def publication_fields(values: dict, edition_id) -> dict[str, list[str]]:
     )
     if conflict:
         fields["registration_opens_at"] = [
-            f'A janela conflita com a edição publicada “{conflict.name}”.'
+            f"A janela conflita com a edição publicada “{conflict.name}”."
         ]
     return fields
 
@@ -375,6 +376,77 @@ def variant_create(product_id: str):
     )
     db.session.commit()
     return success({"id": str(row.id), "stock_quantity": row.stock_quantity}, status=201)
+
+
+@bp.post("/admin/products/<product_id>/media")
+@require_permission("store.manage")
+def product_media_create(product_id: str):
+    product = db.session.get(Product, parse_uuid(product_id)) if parse_uuid(product_id) else None
+    body = body_json()
+    storage_key = str(body.get("storage_key", "")).strip()
+    alt_text = str(body.get("alt_text", "")).strip()
+    if not product or not storage_key or not alt_text:
+        return failure(
+            "validation_error",
+            "Produto, endereço da imagem e texto alternativo são obrigatórios.",
+            status=422,
+        )
+    media = ProductMedia(
+        product_id=product.id,
+        provider=str(body.get("provider", "local"))[:30],
+        storage_key=storage_key[:500],
+        alt_text=alt_text[:180],
+        width=int(body["width"]) if body.get("width") else None,
+        height=int(body["height"]) if body.get("height") else None,
+    )
+    db.session.add(media)
+    audit("product_media.created", "product_media", "Mídia de produto cadastrada", str(media.id))
+    db.session.commit()
+    return success({"id": str(media.id), "storage_key": media.storage_key}, status=201)
+
+
+@bp.post("/admin/products/<product_id>/media/upload")
+@require_permission("store.manage")
+def product_media_upload(product_id: str):
+    product = db.session.get(Product, parse_uuid(product_id)) if parse_uuid(product_id) else None
+    uploaded = request.files.get("file")
+    alt_text = request.form.get("alt_text", "").strip()
+    if not product or not uploaded or not uploaded.filename or not alt_text:
+        return failure(
+            "validation_error",
+            "Produto, arquivo e texto alternativo são obrigatórios.",
+            status=422,
+        )
+    try:
+        processed = process_portfolio_image(uploaded.read())
+        provider = (
+            GoogleDriveMediaProvider()
+            if current_app.config["MEDIA_PROVIDER"] == "google_drive"
+            else LocalMediaProvider(Path("instance/uploads/products"))
+        )
+        if isinstance(provider, GoogleDriveMediaProvider):
+            stored = provider.store(
+                processed.content, processed.suffix, processed.mime_type, folder_name=product.slug
+            )
+        else:
+            stored = provider.store(processed.content, processed.suffix, processed.mime_type)
+    except (RuntimeError, ValueError) as error:
+        return failure("media_upload_failed", str(error), status=422)
+    media = ProductMedia(
+        product_id=product.id,
+        provider=stored.provider,
+        storage_key=stored.storage_key,
+        alt_text=alt_text[:180],
+        width=processed.width,
+        height=processed.height,
+    )
+    db.session.add(media)
+    audit("product_media.uploaded", "product_media", "Imagem de produto enviada", str(media.id))
+    db.session.commit()
+    return success(
+        {"id": str(media.id), "url": media.storage_key, "provider": media.provider},
+        status=201,
+    )
 
 
 @bp.get("/admin/partners")
@@ -577,4 +649,6 @@ def google_callback():
     row.consumed_at = datetime.now(UTC)
     audit("integration.connected", "integration", "Google Drive conectado")
     db.session.commit()
-    return redirect("/admin/sistema?drive=connected")
+    return redirect(
+        f"{current_app.config['PUBLIC_BASE_URL']}/painel/sistema?drive=connected"
+    )

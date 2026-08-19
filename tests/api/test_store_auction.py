@@ -17,6 +17,35 @@ def test_unpublished_products_are_not_public(app, client):
     assert response.json["data"] == []
 
 
+def test_internal_only_product_is_not_public_or_purchasable(app, client):
+    with app.app_context():
+        product = Product(
+            name="Camiseta Movimento 7",
+            slug="camiseta-movimento7",
+            description="Uso interno",
+            price_cents=10000,
+            status="published",
+        )
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(
+            product_id=product.id, sku="M7-INTERNO", name="M", stock_quantity=10
+        )
+        db.session.add(variant)
+        db.session.commit()
+        variant_id = str(variant.id)
+
+    assert client.get("/api/v1/products").json["data"] == []
+    assert client.get("/api/v1/products/camiseta-movimento7").status_code == 404
+    cart = client.post("/api/v1/carts").json["data"]
+    response = client.put(
+        "/api/v1/carts/items",
+        json={"cart_token": cart["cart_token"], "variant_id": variant_id, "quantity": 1},
+    )
+    assert response.status_code == 404
+    assert response.json["error"]["code"] == "variant_unavailable"
+
+
 def test_cart_rejects_out_of_stock(app, client):
     with app.app_context():
         product = Product(

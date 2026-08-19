@@ -89,6 +89,8 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
+      - key: GOOGLE_DRIVE_PRODUCT_FOLDER_ID
+        sync: false
 
   - type: web
     name: movimento7-web
