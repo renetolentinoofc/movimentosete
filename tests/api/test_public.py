@@ -131,6 +131,7 @@ def test_contact_is_persisted_and_forwarded(app, client):
         assert contact.email == "pessoa@example.test"
         assert communication.template_key == "contact_message_received"
         assert communication.status == "logged"
+        assert communication.contact_id == contact.id
 
 
 def create_public_profile(app, *, status="published"):

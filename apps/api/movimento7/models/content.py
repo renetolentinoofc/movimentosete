@@ -145,8 +145,47 @@ class ContactMessage(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     subject: Mapped[str] = mapped_column(String(140), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="received")
+    assigned_to_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id"), index=True
+    )
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     privacy_version: Mapped[str] = mapped_column(String(30), nullable=False)
+
+
+class ContactNote(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
+    __tablename__ = "contact_notes"
+    contact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("contact_messages.id"), nullable=False, index=True
+    )
+    author_id: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ContactStatusHistory(UUIDPrimaryKeyMixin, db.Model):
+    __tablename__ = "contact_status_history"
+    contact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("contact_messages.id"), nullable=False, index=True
+    )
+    author_id: Mapped[UUID | None] = mapped_column(ForeignKey("admin_users.id"))
+    old_status: Mapped[str | None] = mapped_column(String(30))
+    new_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ContactReply(UUIDPrimaryKeyMixin, db.Model):
+    __tablename__ = "contact_replies"
+    contact_id: Mapped[UUID] = mapped_column(
+        ForeignKey("contact_messages.id"), nullable=False, index=True
+    )
+    author_id: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    communication_log_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_logs.id"), nullable=False, unique=True
+    )
+    subject: Mapped[str] = mapped_column(String(180), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class IntegrationCredential(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):

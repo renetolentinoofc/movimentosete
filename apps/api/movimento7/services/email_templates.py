@@ -97,3 +97,16 @@ def contact_message_received(
             "Responda diretamente a este e-mail para falar com a pessoa remetente.\n"
         ),
     )
+
+
+def contact_reply(*, name: str, subject: str, message: str, protocol: str) -> EmailTemplate:
+    return EmailTemplate(
+        key="contact_reply",
+        subject=subject,
+        text_body=(
+            f"Olá, {name}.\n\n"
+            f"{message}\n\n"
+            f"Protocolo do atendimento: {protocol}\n\n"
+            "Equipe Movimento 7\n"
+        ),
+    )

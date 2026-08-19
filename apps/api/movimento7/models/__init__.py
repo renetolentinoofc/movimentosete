@@ -17,6 +17,9 @@ from .auth import (
 from .content import (
     BackupRecord,
     ContactMessage,
+    ContactNote,
+    ContactReply,
+    ContactStatusHistory,
     ContentEntry,
     ContentVersion,
     DataExport,

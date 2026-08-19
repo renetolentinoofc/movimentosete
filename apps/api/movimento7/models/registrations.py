@@ -165,6 +165,9 @@ class CommunicationLog(UUIDPrimaryKeyMixin, db.Model):
     __tablename__ = "communication_logs"
     __table_args__ = (UniqueConstraint("idempotency_key", name="uq_communication_idempotency"),)
     registration_id: Mapped[UUID | None] = mapped_column(ForeignKey("registrations.id"), index=True)
+    contact_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("contact_messages.id"), index=True
+    )
     author_id: Mapped[UUID | None] = mapped_column(ForeignKey("admin_users.id"))
     channel: Mapped[str] = mapped_column(String(30), nullable=False)
     recipient_hash: Mapped[str] = mapped_column(String(64), nullable=False)

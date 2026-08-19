@@ -25,6 +25,7 @@ def dispatch_email(
     template: EmailTemplate,
     idempotency_key: str,
     registration_id: UUID | None = None,
+    contact_id: UUID | None = None,
     author_id: UUID | None = None,
     reply_to: str | None = None,
 ) -> EmailDispatch:
@@ -63,6 +64,7 @@ def dispatch_email(
 
     log = CommunicationLog(
         registration_id=registration_id,
+        contact_id=contact_id,
         author_id=author_id,
         channel="email",
         recipient_hash=hashlib.sha256(normalized_recipient.encode("utf-8")).hexdigest(),

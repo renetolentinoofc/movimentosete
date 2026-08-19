@@ -371,6 +371,105 @@ paths:
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
+  /admin/contacts:
+    get:
+      tags: [admin]
+      operationId: listAdminContacts
+      summary: Lista a caixa de entrada de contatos com filtros operacionais
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [received, in_progress, resolved, archived] }
+        - name: assigned_to_id
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/contacts/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminContact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/contacts/{id}/triage:
+    patch:
+      tags: [admin]
+      operationId: updateAdminContactTriage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminContactTriageInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/contacts/{id}/notes:
+    post:
+      tags: [admin]
+      operationId: createAdminContactNote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminContactNoteInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/contacts/{id}/reply:
+    post:
+      tags: [admin]
+      operationId: replyAdminContact
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminContactReplyInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /admin/registrations:
     get:
       tags: [admin]
@@ -782,6 +881,24 @@ components:
       required: [idempotency_key]
       properties:
         recipient: { type: string, format: email, maxLength: 180 }
+        idempotency_key: { type: string, minLength: 8, maxLength: 100 }
+    AdminContactTriageInput:
+      type: object
+      properties:
+        status: { type: string, enum: [received, in_progress, resolved, archived] }
+        assigned_to_id: { type: [string, 'null'], format: uuid }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    AdminContactNoteInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 3, maxLength: 2000 }
+    AdminContactReplyInput:
+      type: object
+      required: [subject, message, idempotency_key]
+      properties:
+        subject: { type: string, minLength: 3, maxLength: 180 }
+        message: { type: string, minLength: 3, maxLength: 5000 }
         idempotency_key: { type: string, minLength: 8, maxLength: 100 }
     AdminEditionInput:
       type: object

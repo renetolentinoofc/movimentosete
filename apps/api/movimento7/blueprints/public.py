@@ -603,6 +603,7 @@ def contact():
                 protocol=row.protocol,
             ),
             idempotency_key=f"contact:{row.id}:team",
+            contact_id=row.id,
             reply_to=row.email,
         )
         notification_status = notification.status

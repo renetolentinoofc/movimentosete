@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from flask import Blueprint, current_app, g, request, send_file
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 
 from ..extensions import db
 from ..http import failure, success
@@ -16,6 +16,9 @@ from ..models import (
     AuditLog,
     CommunicationLog,
     ContactMessage,
+    ContactNote,
+    ContactReply,
+    ContactStatusHistory,
     EventEdition,
     GalleryMedia,
     Order,
@@ -33,7 +36,7 @@ from ..models import (
 from ..security import audit, require_permission, sha256
 from ..services.communications import dispatch_email
 from ..services.email_delivery import deliver_email, email_configuration, mask_email, valid_email
-from ..services.email_templates import registration_status_update
+from ..services.email_templates import contact_reply, registration_status_update
 from ..services.media import LocalMediaProvider, process_portfolio_image
 from ..validation import normalize_instagram, parse_uuid
 
@@ -57,6 +60,11 @@ def registration_or_none(registration_id: str) -> Registration | None:
 def profile_or_none(profile_id: str) -> Profile | None:
     parsed = parse_uuid(profile_id)
     return db.session.get(Profile, parsed) if parsed else None
+
+
+def contact_or_none(contact_id: str) -> ContactMessage | None:
+    parsed = parse_uuid(contact_id)
+    return db.session.get(ContactMessage, parsed) if parsed else None
 
 
 def json_object(value: str) -> dict:
@@ -111,7 +119,7 @@ def dashboard():
         "contacts_pending": db.session.scalar(
             select(func.count())
             .select_from(ContactMessage)
-            .where(ContactMessage.status == "received")
+            .where(ContactMessage.status.in_(("received", "in_progress")))
         )
         or 0,
     }
@@ -131,6 +139,368 @@ def dashboard():
                 for row in low_stock
             ],
         }
+    )
+
+
+@bp.get("/admin/contacts")
+@require_permission("contacts.read")
+def contacts():
+    page, limit = paging()
+    query = select(ContactMessage, AdminUser).outerjoin(
+        AdminUser, AdminUser.id == ContactMessage.assigned_to_id
+    )
+    status = request.args.get("status", "").strip()
+    if status in {"received", "in_progress", "resolved", "archived"}:
+        query = query.where(ContactMessage.status == status)
+    assignee = request.args.get("assigned_to_id", "").strip()
+    if assignee == "unassigned":
+        query = query.where(ContactMessage.assigned_to_id.is_(None))
+    elif assignee:
+        assignee_id = parse_uuid(assignee)
+        if assignee_id:
+            query = query.where(ContactMessage.assigned_to_id == assignee_id)
+    search = request.args.get("q", "").strip()[:100]
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                ContactMessage.protocol.ilike(pattern),
+                ContactMessage.name.ilike(pattern),
+                ContactMessage.email.ilike(pattern),
+                ContactMessage.subject.ilike(pattern),
+            )
+        )
+    rows = db.session.execute(
+        query.order_by(ContactMessage.updated_at.desc(), ContactMessage.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit + 1)
+    ).all()
+    return success(
+        [
+            {
+                "id": str(row.id),
+                "protocol": row.protocol,
+                "name": row.name,
+                "email": row.email,
+                "subject": row.subject,
+                "status": row.status,
+                "assigned_to": (
+                    {"id": str(assigned.id), "name": assigned.name, "email": assigned.email}
+                    if assigned
+                    else None
+                ),
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+            for row, assigned in rows[:limit]
+        ],
+        meta={"page": page, "limit": limit, "has_more": len(rows) > limit},
+    )
+
+
+@bp.get("/admin/contacts/<contact_id>")
+@require_permission("contacts.read")
+def contact_detail(contact_id: str):
+    row = contact_or_none(contact_id)
+    if not row:
+        return failure("not_found", "Mensagem não encontrada.", status=404)
+    assigned = db.session.get(AdminUser, row.assigned_to_id) if row.assigned_to_id else None
+    note_rows = db.session.execute(
+        select(ContactNote, AdminUser)
+        .join(AdminUser, AdminUser.id == ContactNote.author_id)
+        .where(ContactNote.contact_id == row.id)
+        .order_by(ContactNote.created_at.desc())
+        .limit(100)
+    ).all()
+    history_rows = db.session.execute(
+        select(ContactStatusHistory, AdminUser)
+        .outerjoin(AdminUser, AdminUser.id == ContactStatusHistory.author_id)
+        .where(ContactStatusHistory.contact_id == row.id)
+        .order_by(ContactStatusHistory.created_at.desc())
+        .limit(100)
+    ).all()
+    reply_rows = db.session.execute(
+        select(ContactReply, AdminUser)
+        .join(AdminUser, AdminUser.id == ContactReply.author_id)
+        .where(ContactReply.contact_id == row.id)
+        .order_by(ContactReply.created_at.desc())
+        .limit(100)
+    ).all()
+    assignees = db.session.scalars(
+        select(AdminUser)
+        .where(AdminUser.active.is_(True), AdminUser.deleted_at.is_(None))
+        .order_by(AdminUser.name)
+        .limit(100)
+    ).all()
+    return success(
+        {
+            "id": str(row.id),
+            "protocol": row.protocol,
+            "name": row.name,
+            "email": row.email,
+            "phone": row.phone_e164,
+            "subject": row.subject,
+            "message": row.message,
+            "status": row.status,
+            "assigned_to": (
+                {"id": str(assigned.id), "name": assigned.name, "email": assigned.email}
+                if assigned
+                else None
+            ),
+            "consent_at": row.consent_at,
+            "privacy_version": row.privacy_version,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "assignees": [
+                {"id": str(item.id), "name": item.name, "email": item.email}
+                for item in assignees
+            ],
+            "notes": [
+                {
+                    "id": str(note.id),
+                    "body": note.body,
+                    "created_at": note.created_at,
+                    "author": {"id": str(author.id), "name": author.name},
+                }
+                for note, author in note_rows
+            ],
+            "history": [
+                {
+                    "id": str(item.id),
+                    "old_status": item.old_status,
+                    "new_status": item.new_status,
+                    "reason": item.reason,
+                    "created_at": item.created_at,
+                    "author": (
+                        {"id": str(author.id), "name": author.name} if author else None
+                    ),
+                }
+                for item, author in history_rows
+            ],
+            "replies": [
+                {
+                    "id": str(reply.id),
+                    "subject": reply.subject,
+                    "body": reply.body,
+                    "delivery_status": reply.delivery_status,
+                    "created_at": reply.created_at,
+                    "author": {"id": str(author.id), "name": author.name},
+                }
+                for reply, author in reply_rows
+            ],
+        }
+    )
+
+
+@bp.patch("/admin/contacts/<contact_id>/triage")
+@require_permission("contacts.manage")
+def contact_triage(contact_id: str):
+    row = contact_or_none(contact_id)
+    if not row:
+        return failure("not_found", "Mensagem não encontrada.", status=404)
+    body = request.get_json(silent=True) or {}
+    status = str(body.get("status", row.status)).strip()
+    allowed = {"received", "in_progress", "resolved", "archived"}
+    if status not in allowed:
+        return failure(
+            "validation_error",
+            "Status inválido.",
+            status=422,
+            fields={"status": ["Escolha um status válido."]},
+        )
+    reason = str(body.get("reason", "")).strip()
+    if status != row.status and not 3 <= len(reason) <= 500:
+        return failure(
+            "validation_error",
+            "Informe o motivo da alteração.",
+            status=422,
+            fields={"reason": ["Use entre 3 e 500 caracteres."]},
+        )
+    assigned = db.session.get(AdminUser, row.assigned_to_id) if row.assigned_to_id else None
+    if "assigned_to_id" in body:
+        assigned_value = body.get("assigned_to_id")
+        assigned = None
+        if assigned_value:
+            assigned_id = parse_uuid(assigned_value)
+            assigned = db.session.get(AdminUser, assigned_id) if assigned_id else None
+            if not assigned or not assigned.active or assigned.deleted_at:
+                return failure(
+                    "validation_error",
+                    "Responsável inválido.",
+                    status=422,
+                    fields={"assigned_to_id": ["Escolha uma pessoa responsável ativa."]},
+                )
+    old_status = row.status
+    row.status = status
+    row.assigned_to_id = assigned.id if assigned else None
+    if old_status != status:
+        db.session.add(
+            ContactStatusHistory(
+                contact_id=row.id,
+                author_id=g.current_user.id,
+                old_status=old_status,
+                new_status=status,
+                reason=reason,
+                created_at=datetime.now(UTC),
+            )
+        )
+    audit(
+        "contact.triage_changed",
+        "contact",
+        f"Atendimento atualizado para {status}",
+        str(row.id),
+    )
+    db.session.commit()
+    return success(
+        {
+            "id": str(row.id),
+            "status": row.status,
+            "assigned_to": (
+                {"id": str(assigned.id), "name": assigned.name, "email": assigned.email}
+                if assigned
+                else None
+            ),
+        }
+    )
+
+
+@bp.post("/admin/contacts/<contact_id>/notes")
+@require_permission("contacts.manage")
+def contact_note_create(contact_id: str):
+    row = contact_or_none(contact_id)
+    if not row:
+        return failure("not_found", "Mensagem não encontrada.", status=404)
+    body = request.get_json(silent=True) or {}
+    note_body = str(body.get("body", "")).strip()
+    if not 3 <= len(note_body) <= 2000:
+        return failure(
+            "validation_error",
+            "A nota deve ter entre 3 e 2.000 caracteres.",
+            status=422,
+            fields={"body": ["Use entre 3 e 2.000 caracteres."]},
+        )
+    note = ContactNote(
+        contact_id=row.id,
+        author_id=g.current_user.id,
+        body=note_body,
+    )
+    db.session.add(note)
+    db.session.flush()
+    audit("contact.note_created", "contact", "Nota interna adicionada", str(row.id))
+    db.session.commit()
+    return success(
+        {
+            "id": str(note.id),
+            "body": note.body,
+            "created_at": note.created_at,
+            "author": {"id": str(g.current_user.id), "name": g.current_user.name},
+        },
+        status=201,
+    )
+
+
+@bp.post("/admin/contacts/<contact_id>/reply")
+@require_permission("contacts.manage")
+def contact_reply_send(contact_id: str):
+    row = contact_or_none(contact_id)
+    if not row:
+        return failure("not_found", "Mensagem não encontrada.", status=404)
+    body = request.get_json(silent=True) or {}
+    subject = str(body.get("subject", "")).strip()
+    message = str(body.get("message", "")).strip()
+    idempotency_key = str(body.get("idempotency_key", "")).strip()
+    fields: dict[str, list[str]] = {}
+    if not 3 <= len(subject) <= 180 or "\n" in subject or "\r" in subject:
+        fields["subject"] = ["Use entre 3 e 180 caracteres, em uma única linha."]
+    if not 3 <= len(message) <= 5000:
+        fields["message"] = ["Use entre 3 e 5.000 caracteres."]
+    if not 8 <= len(idempotency_key) <= 100:
+        fields["idempotency_key"] = ["Use entre 8 e 100 caracteres."]
+    if fields:
+        return failure(
+            "validation_error", "Revise a resposta.", status=422, fields=fields
+        )
+    existing = db.session.scalar(
+        select(CommunicationLog).where(
+            CommunicationLog.idempotency_key == idempotency_key
+        )
+    )
+    if existing:
+        saved_reply = db.session.scalar(
+            select(ContactReply).where(
+                ContactReply.communication_log_id == existing.id,
+                ContactReply.contact_id == row.id,
+            )
+        )
+        if not saved_reply:
+            return failure(
+                "idempotency_conflict",
+                "Esta chave já foi usada em outra operação.",
+                status=409,
+            )
+        return success(
+            {
+                "id": str(saved_reply.id),
+                "delivery_status": saved_reply.delivery_status,
+                "duplicate": True,
+            }
+        )
+    if not email_configuration()["configured"]:
+        return failure(
+            "email_not_configured",
+            "Complete a configuração de e-mail antes de responder.",
+            status=409,
+        )
+    dispatch = dispatch_email(
+        recipient=row.email,
+        template=contact_reply(
+            name=row.name,
+            subject=subject,
+            message=message,
+            protocol=row.protocol,
+        ),
+        idempotency_key=idempotency_key,
+        contact_id=row.id,
+        author_id=g.current_user.id,
+    )
+    now = datetime.now(UTC)
+    reply = ContactReply(
+        contact_id=row.id,
+        author_id=g.current_user.id,
+        communication_log_id=dispatch.log_id,
+        subject=subject,
+        body=message,
+        delivery_status=dispatch.status,
+        created_at=now,
+    )
+    db.session.add(reply)
+    if row.status == "received":
+        db.session.add(
+            ContactStatusHistory(
+                contact_id=row.id,
+                author_id=g.current_user.id,
+                old_status="received",
+                new_status="in_progress",
+                reason="Resposta enviada por e-mail",
+                created_at=now,
+            )
+        )
+        row.status = "in_progress"
+    audit(
+        "contact.reply_sent",
+        "contact",
+        f"Resposta por e-mail registrada com status {dispatch.status}",
+        str(row.id),
+    )
+    db.session.commit()
+    return success(
+        {
+            "id": str(reply.id),
+            "delivery_status": reply.delivery_status,
+            "contact_status": row.status,
+            "duplicate": False,
+        },
+        status=201,
     )
 
 
