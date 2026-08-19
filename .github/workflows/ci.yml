@@ -1,0 +1,45 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: movimento7_test
+          POSTGRES_USER: movimento7
+          POSTGRES_PASSWORD: test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U movimento7 -d movimento7_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -e 'apps/api[dev]'
+      - run: ruff check apps/api/movimento7 tests/api
+      - run: pytest --cov=movimento7 tests/api
+      - run: PYTHONPATH=apps/api FLASK_APP=wsgi:app flask db upgrade
+        env:
+          DATABASE_URL: postgresql+psycopg://movimento7:test-only@127.0.0.1:5432/movimento7_test
+      - run: PYTHONPATH=apps/api FLASK_APP=wsgi:app flask db check
+        env:
+          DATABASE_URL: postgresql+psycopg://movimento7:test-only@127.0.0.1:5432/movimento7_test
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run lint -w @movimento7/web
+      - run: npm run typecheck -w @movimento7/web
+      - run: npm test -w @movimento7/web
+      - run: npm run build -w @movimento7/web

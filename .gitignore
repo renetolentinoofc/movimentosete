@@ -1,29 +1,24 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Ambiente virtual
-.venv/
-venv/
-
-# Variáveis e segredos
+.directory
 .env
 .env.*
-
-# Banco local
-instance/
-*.db
-*.sqlite
+!.env.example
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+dist/
+build/
 *.sqlite3
-
-# IDE
-.vscode/
-.idea/
-
-# Sistema
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
+uploads/
+instance/
+*.tsbuildinfo
+references/generated/

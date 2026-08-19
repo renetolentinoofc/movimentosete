@@ -1,40 +1,120 @@
+previews:
+  generation: manual
+
+databases:
+  - name: movimento7-db
+    databaseName: movimento7
+    user: movimento7
+    plan: basic-256mb
+    region: ohio
+    postgresMajorVersion: "18"
+    ipAllowList: []
+
 services:
   - type: web
-    name: movimento7
+    name: movimento7-api
     runtime: python
-    plan: free
-
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn "app:create_app()" --workers 1 --threads 4 --timeout 120
-    healthCheckPath: /saude
-
+    plan: starter
+    region: ohio
+    buildCommand: pip install -e apps/api
+    preDeployCommand: PYTHONPATH=apps/api FLASK_APP=wsgi:app flask db upgrade
+    initialDeployHook: PYTHONPATH=apps/api FLASK_APP=wsgi:app flask seed
+    startCommand: gunicorn --chdir apps/api --workers 2 --threads 4 --timeout 60 --bind 0.0.0.0:$PORT wsgi:app
+    healthCheckPath: /api/v1/health/live
+    buildFilter:
+      paths:
+        - apps/api/**
+        - migrations/**
+        - render.yaml
     envVars:
-      - key: GOOGLE_CLIENT_ID
-        sync: false
-
-      - key: GOOGLE_CLIENT_SECRET
-        sync: false
-
-
-      - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
-        sync: false
-
-      - key: PYTHON_VERSION
-        value: "3.13.5"
-
-      - key: SECRET_KEY
-        generateValue: true
-
-      - key: ADMIN_PASSWORD
-        sync: false
-
       - key: DATABASE_URL
         fromDatabase:
           name: movimento7-db
           property: connectionString
+      - key: APP_ENV
+        value: production
+      - key: APP_VERSION
+        value: 0.1.0
+      - key: DEPLOYED_AT
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://movimento7.com.br
+      - key: CORS_ORIGINS
+        value: https://movimento7.com.br
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: AUCTION_BIDDING_ENABLED
+        value: "false"
+      - key: PAYMENT_PROVIDER
+        value: manual
+      - key: EMAIL_DELIVERY_MODE
+        value: log
+      - key: EMAIL_SANDBOX_RECIPIENT
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: Movimento 7
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: EMAIL_CONTACT_RECIPIENT
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: PASSWORD_RESET_MINUTES
+        value: "30"
+      - key: MEDIA_PROVIDER
+        value: local
+      - key: INITIAL_ADMIN_EMAIL
+        value: admin@movimento7.com
+      - key: INITIAL_ADMIN_NAME
+        value: Administrador Movimento 7
+      - key: INITIAL_ADMIN_PASSWORD
+        sync: false
+      - key: MEDIA_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
 
-databases:
-  - name: movimento7-db
-    plan: free
-    databaseName: movimento7
-    user: movimento7
+  - type: web
+    name: movimento7-web
+    runtime: node
+    plan: starter
+    region: ohio
+    buildCommand: npm ci && npm run build -w @movimento7/web
+    startCommand: npm run start -w @movimento7/web -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /saude
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: 24.10.0
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://movimento7.com.br
+      - key: INTERNAL_API_URL
+        value: https://movimento7-api.onrender.com
+      - key: APP_VERSION
+        value: 0.1.0
+      - key: GIT_COMMIT
+        sync: false

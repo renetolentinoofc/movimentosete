@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({ reset }: { reset: () => void }) { return <section className="section"><div className="container"><p className="eyebrow">Erro 500</p><h1>O fluxo parou por aqui</h1><p className="lead">Não foi possível carregar esta página. Nenhum dado precisa ser reenviado agora.</p><button className="button" type="button" onClick={reset}>TENTAR NOVAMENTE</button></div></section>; }
