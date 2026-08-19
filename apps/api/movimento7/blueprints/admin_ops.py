@@ -17,18 +17,27 @@ from werkzeug.security import generate_password_hash
 from ..extensions import db
 from ..http import failure, success
 from ..models import (
+    Address,
     AdminUser,
     Artwork,
     AuctionLot,
     AuctionLotStatusHistory,
     ContentEntry,
     ContentVersion,
+    Customer,
     EventEdition,
+    Fulfillment,
     GalleryAlbum,
     GalleryMedia,
     IntegrationCredential,
+    InventoryMovement,
+    InventoryReservation,
     OAuthState,
+    Order,
+    OrderItem,
+    OrderStatusHistory,
     Partner,
+    Payment,
     PrivacyRequest,
     Product,
     ProductMedia,
@@ -37,6 +46,12 @@ from ..models import (
     Role,
 )
 from ..security import audit, require_permission, sha256
+from ..services.email_templates import (
+    order_payment_update as order_payment_email,
+)
+from ..services.email_templates import (
+    order_status_update as order_status_email,
+)
 from ..services.media import (
     GoogleDriveMediaProvider,
     LocalMediaProvider,
@@ -45,6 +60,7 @@ from ..services.media import (
     process_portfolio_image,
     reconcile_gallery_media,
 )
+from ..services.order_notifications import format_order_total, notify_order
 from ..validation import aware_utc, parse_uuid, safe_http_url
 
 bp = Blueprint("admin_ops", __name__)
@@ -56,21 +72,23 @@ def auction_lots_list():
     rows = db.session.execute(
         select(AuctionLot, Artwork).join(Artwork).order_by(AuctionLot.created_at.desc()).limit(100)
     ).all()
-    return success([
-        {
-            "id": str(lot.id),
-            "slug": lot.slug,
-            "title": lot.title,
-            "artist_name": artwork.artist_name,
-            "starting_bid_cents": lot.starting_bid_cents,
-            "minimum_increment_cents": lot.minimum_increment_cents,
-            "current_bid_cents": lot.current_bid_cents,
-            "opens_at": lot.opens_at,
-            "closes_at": lot.closes_at,
-            "status": lot.status,
-        }
-        for lot, artwork in rows
-    ])
+    return success(
+        [
+            {
+                "id": str(lot.id),
+                "slug": lot.slug,
+                "title": lot.title,
+                "artist_name": artwork.artist_name,
+                "starting_bid_cents": lot.starting_bid_cents,
+                "minimum_increment_cents": lot.minimum_increment_cents,
+                "current_bid_cents": lot.current_bid_cents,
+                "opens_at": lot.opens_at,
+                "closes_at": lot.closes_at,
+                "status": lot.status,
+            }
+            for lot, artwork in rows
+        ]
+    )
 
 
 @bp.post("/admin/auction-lots")
@@ -90,7 +108,9 @@ def auction_lot_create():
     if db.session.scalar(select(AuctionLot.id).where(AuctionLot.slug == slug)):
         return failure("conflict", "Já existe um lote com este slug.", status=409)
     artwork = Artwork(
-        title=title[:180], slug=f"{slug}-obra"[:180], artist_name=artist_name[:140],
+        title=title[:180],
+        slug=f"{slug}-obra"[:180],
+        artist_name=artist_name[:140],
         technique=str(body.get("technique", "")).strip()[:140] or None,
         dimensions=str(body.get("dimensions", "")).strip()[:120] or None,
         description=str(body.get("description", "")).strip() or None,
@@ -99,9 +119,13 @@ def auction_lot_create():
     db.session.add(artwork)
     db.session.flush()
     lot = AuctionLot(
-        artwork_id=artwork.id, slug=slug, title=title[:180],
+        artwork_id=artwork.id,
+        slug=slug,
+        title=title[:180],
         rules=str(body.get("rules", "")).strip() or None,
-        starting_bid_cents=starting_bid, minimum_increment_cents=increment, status="draft",
+        starting_bid_cents=starting_bid,
+        minimum_increment_cents=increment,
+        status="draft",
     )
     db.session.add(lot)
     audit("auction_lot.created", "auction_lot", "Lote de leilão criado", str(lot.id))
@@ -129,14 +153,21 @@ def auction_lot_status(lot_id: str):
         return failure("invalid_transition", "Transição de status inválida.", status=409)
     old_status = lot.status
     lot.status = new_status
-    db.session.add(AuctionLotStatusHistory(
-        lot_id=lot.id, old_status=old_status, new_status=new_status,
-        reason=str(body_json().get("reason", "")).strip()[:500] or None,
-        actor_user_id=g.current_user.id, created_at=datetime.now(UTC),
-    ))
+    db.session.add(
+        AuctionLotStatusHistory(
+            lot_id=lot.id,
+            old_status=old_status,
+            new_status=new_status,
+            reason=str(body_json().get("reason", "")).strip()[:500] or None,
+            actor_user_id=g.current_user.id,
+            created_at=datetime.now(UTC),
+        )
+    )
     audit(
-        "auction_lot.status_changed", "auction_lot",
-        f"Status alterado de {old_status} para {new_status}", str(lot.id),
+        "auction_lot.status_changed",
+        "auction_lot",
+        f"Status alterado de {old_status} para {new_status}",
+        str(lot.id),
     )
     db.session.commit()
     return success({"id": str(lot.id), "status": lot.status})
@@ -200,14 +231,19 @@ def auction_lot_delete(lot_id: str):
 @require_permission("users.manage")
 def users_list():
     rows = db.session.scalars(select(AdminUser).order_by(AdminUser.name).limit(100)).all()
-    return success([
-        {
-            "id": str(row.id), "name": row.name, "email": row.email,
-            "active": row.active, "must_change_password": row.must_change_password,
-            "roles": [role.slug for role in row.roles],
-        }
-        for row in rows
-    ])
+    return success(
+        [
+            {
+                "id": str(row.id),
+                "name": row.name,
+                "email": row.email,
+                "active": row.active,
+                "must_change_password": row.must_change_password,
+                "roles": [role.slug for role in row.roles],
+            }
+            for row in rows
+        ]
+    )
 
 
 @bp.post("/admin/users")
@@ -219,7 +255,10 @@ def user_create():
     password = str(body.get("password", ""))
     role_slugs = body.get("roles", [])
     if (
-        not email or "@" not in email or not name or len(password) < 12
+        not email
+        or "@" not in email
+        or not name
+        or len(password) < 12
         or not isinstance(role_slugs, list)
     ):
         return failure(
@@ -231,9 +270,11 @@ def user_create():
     if len(roles) != len(set(role_slugs)):
         return failure("validation_error", "Um ou mais papéis não existem.", status=422)
     row = AdminUser(
-        email=email[:180], name=name[:140],
+        email=email[:180],
+        name=name[:140],
         password_hash=generate_password_hash(password),
-        must_change_password=True, roles=roles,
+        must_change_password=True,
+        roles=roles,
     )
     db.session.add(row)
     db.session.flush()
@@ -298,14 +339,19 @@ def privacy_requests_list():
     rows = db.session.scalars(
         select(PrivacyRequest).order_by(PrivacyRequest.created_at.desc()).limit(100)
     ).all()
-    return success([
-        {
-            "id": str(row.id), "protocol": row.protocol,
-            "request_type": row.request_type, "status": row.status,
-            "created_at": row.created_at, "resolved_at": row.resolved_at,
-        }
-        for row in rows
-    ])
+    return success(
+        [
+            {
+                "id": str(row.id),
+                "protocol": row.protocol,
+                "request_type": row.request_type,
+                "status": row.status,
+                "created_at": row.created_at,
+                "resolved_at": row.resolved_at,
+            }
+            for row in rows
+        ]
+    )
 
 
 @bp.patch("/admin/privacy/requests/<request_id>/status")
@@ -322,8 +368,10 @@ def privacy_request_status(request_id: str):
     row.resolved_by_id = g.current_user.id if status in {"resolved", "rejected"} else None
     row.resolved_at = datetime.now(UTC) if status in {"resolved", "rejected"} else None
     audit(
-        "privacy_request.status_changed", "privacy_request",
-        "Status da solicitação LGPD alterado", str(row.id),
+        "privacy_request.status_changed",
+        "privacy_request",
+        "Status da solicitação LGPD alterado",
+        str(row.id),
     )
     db.session.commit()
     return success({"id": str(row.id), "status": row.status, "resolved_at": row.resolved_at})
@@ -464,8 +512,11 @@ def gallery_media_update(media_id: str):
         return failure("not_found", "Mídia não encontrada.", status=404)
     body = body_json()
     for field, limit in (
-        ("title", 180), ("category", 60), ("caption", 600),
-        ("alt_text", 180), ("credit", 180),
+        ("title", 180),
+        ("category", 60),
+        ("caption", 600),
+        ("alt_text", 180),
+        ("credit", 180),
     ):
         if field in body:
             value = str(body[field]).strip()
@@ -624,6 +675,150 @@ def gallery_reconcile():
 
 def body_json() -> dict:
     return request.get_json(silent=True) or {}
+
+
+def _release_order_reservations(order: Order, reason: str) -> None:
+    reservations = db.session.scalars(
+        select(InventoryReservation)
+        .where(
+            InventoryReservation.order_id == order.id,
+            InventoryReservation.status == "active",
+        )
+        .with_for_update()
+    ).all()
+    for reservation in reservations:
+        variant = db.session.get(ProductVariant, reservation.variant_id)
+        if variant:
+            variant.reserved_quantity = max(0, variant.reserved_quantity - reservation.quantity)
+        reservation.status = "released"
+        reservation.updated_at = datetime.now(UTC)
+    audit("order.reservations_released", "order", reason, str(order.id))
+
+
+def _commit_order_reservations(order: Order, reason: str) -> None:
+    reservations = db.session.scalars(
+        select(InventoryReservation)
+        .where(
+            InventoryReservation.order_id == order.id,
+            InventoryReservation.status == "active",
+        )
+        .with_for_update()
+    ).all()
+    for reservation in reservations:
+        variant = db.session.get(ProductVariant, reservation.variant_id)
+        if not variant or variant.stock_quantity < reservation.quantity:
+            raise ValueError("Estoque insuficiente para confirmar o pedido.")
+        variant.reserved_quantity -= reservation.quantity
+        variant.stock_quantity -= reservation.quantity
+        reservation.status = "committed"
+        reservation.updated_at = datetime.now(UTC)
+        db.session.add(
+            InventoryMovement(
+                variant_id=variant.id,
+                order_id=order.id,
+                quantity_delta=-reservation.quantity,
+                reason=reason,
+                actor_user_id=g.current_user.id,
+                created_at=datetime.now(UTC),
+            )
+        )
+
+
+def _order_data(order: Order, include_details: bool = False) -> dict:
+    customer = db.session.get(Customer, order.customer_id)
+    result = {
+        "id": str(order.id),
+        "order_code": order.public_code,
+        "status": order.status,
+        "payment_status": order.payment_status,
+        "fulfillment_method": order.fulfillment_method,
+        "subtotal_cents": order.subtotal_cents,
+        "shipping_cents": order.shipping_cents,
+        "total_cents": order.total_cents,
+        "currency": order.currency,
+        "created_at": order.created_at,
+        "customer": {
+            "name": customer.name if customer else "",
+            "email": customer.email if customer else "",
+            "phone": customer.phone_e164 if customer else "",
+        },
+    }
+    if not include_details:
+        return result
+    address = db.session.get(Address, order.address_id) if order.address_id else None
+    payment = db.session.scalar(
+        select(Payment).where(Payment.order_id == order.id).order_by(Payment.created_at.desc())
+    )
+    fulfillment = db.session.scalar(
+        select(Fulfillment)
+        .where(Fulfillment.order_id == order.id)
+        .order_by(Fulfillment.created_at.desc())
+    )
+    items = db.session.scalars(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+    history = db.session.scalars(
+        select(OrderStatusHistory)
+        .where(OrderStatusHistory.order_id == order.id)
+        .order_by(OrderStatusHistory.created_at.desc())
+        .limit(50)
+    ).all()
+    result["address"] = (
+        {
+            "recipient_name": address.recipient_name,
+            "postal_code": address.postal_code,
+            "street": address.street,
+            "number": address.number,
+            "complement": address.complement,
+            "neighborhood": address.neighborhood,
+            "city": address.city,
+            "state": address.state,
+        }
+        if address
+        else None
+    )
+    result["items"] = [
+        {
+            "product_name": item.product_name_snapshot,
+            "sku": item.sku_snapshot,
+            "variant": item.variant_snapshot,
+            "unit_price_cents": item.unit_price_cents,
+            "quantity": item.quantity,
+        }
+        for item in items
+    ]
+    result["payment"] = (
+        {
+            "id": str(payment.id),
+            "provider": payment.provider,
+            "status": payment.status,
+            "amount_cents": payment.amount_cents,
+            "provider_reference": payment.provider_reference,
+            "failure_code": payment.failure_code,
+        }
+        if payment
+        else None
+    )
+    result["fulfillment"] = (
+        {
+            "id": str(fulfillment.id),
+            "status": fulfillment.status,
+            "carrier": fulfillment.carrier,
+            "tracking_code": fulfillment.tracking_code,
+            "shipped_at": fulfillment.shipped_at,
+            "delivered_at": fulfillment.delivered_at,
+        }
+        if fulfillment
+        else None
+    )
+    result["history"] = [
+        {
+            "old_status": item.old_status,
+            "new_status": item.new_status,
+            "reason": item.reason,
+            "created_at": item.created_at,
+        }
+        for item in history
+    ]
+    return result
 
 
 def normalized_slug(value: str) -> str:
@@ -903,8 +1098,29 @@ def products_list():
                 "id": str(row.id),
                 "name": row.name,
                 "slug": row.slug,
+                "description": row.description,
+                "composition": row.composition,
                 "price_cents": row.price_cents,
                 "status": row.status,
+                "featured": row.featured,
+                "display_order": row.display_order,
+                "variants": [
+                    {
+                        "id": str(variant.id),
+                        "sku": variant.sku,
+                        "name": variant.name,
+                        "size": variant.size,
+                        "color": variant.color,
+                        "stock_quantity": variant.stock_quantity,
+                        "reserved_quantity": variant.reserved_quantity,
+                        "active": variant.active,
+                    }
+                    for variant in db.session.scalars(
+                        select(ProductVariant)
+                        .where(ProductVariant.product_id == row.id)
+                        .order_by(ProductVariant.name)
+                    ).all()
+                ],
             }
             for row in rows
         ]
@@ -1036,6 +1252,399 @@ def product_media_upload(product_id: str):
     )
 
 
+@bp.patch("/admin/products/<product_id>")
+@require_permission("store.manage")
+def product_update(product_id: str):
+    product = db.session.get(Product, parse_uuid(product_id)) if parse_uuid(product_id) else None
+    if not product:
+        return failure("not_found", "Produto não encontrado.", status=404)
+    body = body_json()
+    name = str(body.get("name", product.name)).strip()
+    slug = normalized_slug(str(body.get("slug", product.slug)))
+    try:
+        price = int(body.get("price_cents", product.price_cents))
+    except (TypeError, ValueError):
+        return failure("validation_error", "Preço inválido.", status=422)
+    if not name or not slug or price < 0:
+        return failure("validation_error", "Nome, slug e preço são obrigatórios.", status=422)
+    if db.session.scalar(select(Product.id).where(Product.slug == slug, Product.id != product.id)):
+        return failure("conflict", "Já existe um produto com este slug.", status=409)
+    product.name = name[:180]
+    product.slug = slug
+    product.description = str(body.get("description", product.description)).strip()
+    product.composition = str(body.get("composition", product.composition or "")).strip() or None
+    product.price_cents = price
+    product.featured = bool(body.get("featured", product.featured))
+    try:
+        product.display_order = int(body.get("display_order", product.display_order))
+    except (TypeError, ValueError):
+        return failure("validation_error", "Ordem de exibição inválida.", status=422)
+    audit("product.updated", "product", "Produto atualizado", str(product.id))
+    db.session.commit()
+    return success({"id": str(product.id), "slug": product.slug, "status": product.status})
+
+
+@bp.patch("/admin/products/<product_id>/status")
+@require_permission("store.manage")
+def product_status(product_id: str):
+    product = db.session.get(Product, parse_uuid(product_id)) if parse_uuid(product_id) else None
+    if not product:
+        return failure("not_found", "Produto não encontrado.", status=404)
+    new_status = str(body_json().get("status", "")).strip()
+    transitions = {
+        "draft": {"published", "archived"},
+        "published": {"draft", "archived"},
+        "archived": {"draft"},
+    }
+    if new_status not in transitions.get(product.status, set()):
+        return failure("invalid_transition", "Transição de produto inválida.", status=409)
+    if new_status == "published":
+        has_variant = db.session.scalar(
+            select(ProductVariant.id).where(
+                ProductVariant.product_id == product.id, ProductVariant.active.is_(True)
+            )
+        )
+        has_media = db.session.scalar(
+            select(ProductMedia.id).where(
+                ProductMedia.product_id == product.id, ProductMedia.active.is_(True)
+            )
+        )
+        if not has_variant or not has_media:
+            return failure(
+                "product_incomplete",
+                "Adicione ao menos uma variante e uma imagem antes de publicar.",
+                status=422,
+            )
+    old_status = product.status
+    product.status = new_status
+    audit(
+        "product.status_changed",
+        "product",
+        f"Status alterado de {old_status} para {new_status}",
+        str(product.id),
+    )
+    db.session.commit()
+    return success({"id": str(product.id), "status": product.status})
+
+
+@bp.patch("/admin/products/<product_id>/variants/<variant_id>")
+@require_permission("store.manage")
+def product_variant_update(product_id: str, variant_id: str):
+    product = db.session.get(Product, parse_uuid(product_id)) if parse_uuid(product_id) else None
+    variant = (
+        db.session.get(ProductVariant, parse_uuid(variant_id)) if parse_uuid(variant_id) else None
+    )
+    if not product or not variant or variant.product_id != product.id:
+        return failure("not_found", "Variante não encontrada.", status=404)
+    body = body_json()
+    sku = str(body.get("sku", variant.sku)).strip()
+    name = str(body.get("name", variant.name)).strip()
+    try:
+        stock = int(body.get("stock_quantity", variant.stock_quantity))
+    except (TypeError, ValueError):
+        return failure("validation_error", "Estoque inválido.", status=422)
+    if not sku or not name or stock < variant.reserved_quantity:
+        return failure(
+            "validation_error",
+            "Informe SKU, nome e estoque maior ou igual ao reservado.",
+            status=422,
+        )
+    if db.session.scalar(
+        select(ProductVariant.id).where(ProductVariant.sku == sku, ProductVariant.id != variant.id)
+    ):
+        return failure("conflict", "Já existe uma variante com este SKU.", status=409)
+    delta = stock - variant.stock_quantity
+    variant.sku = sku[:80]
+    variant.name = name[:120]
+    variant.size = str(body.get("size", variant.size or "")).strip() or None
+    variant.color = str(body.get("color", variant.color or "")).strip() or None
+    variant.active = bool(body.get("active", variant.active))
+    if body.get("price_override_cents") is not None:
+        try:
+            variant.price_override_cents = int(body["price_override_cents"])
+        except (TypeError, ValueError):
+            return failure("validation_error", "Preço da variante inválido.", status=422)
+    variant.stock_quantity = stock
+    if delta:
+        db.session.add(
+            InventoryMovement(
+                variant_id=variant.id,
+                quantity_delta=delta,
+                reason="admin_stock_adjustment",
+                actor_user_id=g.current_user.id,
+                created_at=datetime.now(UTC),
+            )
+        )
+    audit("product_variant.updated", "product_variant", "Variante atualizada", str(variant.id))
+    db.session.commit()
+    return success(
+        {
+            "id": str(variant.id),
+            "stock_quantity": variant.stock_quantity,
+            "reserved_quantity": variant.reserved_quantity,
+        }
+    )
+
+
+@bp.get("/admin/inventory/movements")
+@require_permission("store.manage")
+def inventory_movements_list():
+    variant_id = parse_uuid(request.args.get("variant_id", ""))
+    try:
+        limit = min(200, max(1, int(request.args.get("limit", 100))))
+    except (TypeError, ValueError):
+        limit = 100
+    query = (
+        select(InventoryMovement, ProductVariant, Product)
+        .join(ProductVariant, ProductVariant.id == InventoryMovement.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .order_by(InventoryMovement.created_at.desc())
+        .limit(limit)
+    )
+    if variant_id:
+        query = query.where(InventoryMovement.variant_id == variant_id)
+    rows = db.session.execute(query).all()
+    return success(
+        [
+            {
+                "id": str(movement.id),
+                "product_id": str(product.id),
+                "product_name": product.name,
+                "variant_id": str(variant.id),
+                "variant_name": variant.name,
+                "sku": variant.sku,
+                "quantity_delta": movement.quantity_delta,
+                "reason": movement.reason,
+                "created_at": movement.created_at,
+            }
+            for movement, variant, product in rows
+        ]
+    )
+
+
+@bp.get("/admin/orders")
+@require_permission("orders.manage")
+def orders_list():
+    status = str(request.args.get("status", "")).strip()
+    query = (
+        select(Order, Customer)
+        .join(Customer, Customer.id == Order.customer_id)
+        .order_by(Order.created_at.desc())
+        .limit(200)
+    )
+    if status:
+        query = query.where(Order.status == status)
+    rows = db.session.execute(query).all()
+    return success(
+        [
+            {
+                **_order_data(order),
+                "customer": {
+                    "name": customer.name,
+                    "email": customer.email,
+                    "phone": customer.phone_e164,
+                },
+            }
+            for order, customer in rows
+        ]
+    )
+
+
+@bp.get("/admin/orders/<order_id>")
+@require_permission("orders.manage")
+def order_detail(order_id: str):
+    order = db.session.get(Order, parse_uuid(order_id)) if parse_uuid(order_id) else None
+    if not order:
+        return failure("not_found", "Pedido não encontrado.", status=404)
+    return success(_order_data(order, include_details=True))
+
+
+@bp.patch("/admin/orders/<order_id>/payment")
+@require_permission("payments.manage")
+def order_payment_update(order_id: str):
+    order = db.session.get(Order, parse_uuid(order_id)) if parse_uuid(order_id) else None
+    if not order:
+        return failure("not_found", "Pedido não encontrado.", status=404)
+    payment = db.session.scalar(
+        select(Payment)
+        .where(Payment.order_id == order.id)
+        .order_by(Payment.created_at.desc())
+        .with_for_update()
+    )
+    if not payment:
+        return failure("not_found", "Pagamento não encontrado.", status=404)
+    new_status = str(body_json().get("status", "")).strip()
+    if new_status not in {"paid", "failed", "refunded"}:
+        return failure("validation_error", "Status de pagamento inválido.", status=422)
+    if payment.status == "paid" and new_status == "paid":
+        return success(_order_data(order, include_details=True))
+    if payment.status in {"refunded", "failed"}:
+        return failure("invalid_transition", "Pagamento já encerrado.", status=409)
+    customer = db.session.get(Customer, order.customer_id)
+    notification_template = None
+    if new_status == "paid":
+        try:
+            _commit_order_reservations(order, "payment_confirmed")
+        except ValueError as error:
+            db.session.rollback()
+            return failure("out_of_stock", str(error), status=409)
+        payment.status = "paid"
+        order.payment_status = "paid"
+        old_status = order.status
+        order.status = "processing"
+        db.session.add(
+            OrderStatusHistory(
+                order_id=order.id,
+                old_status=old_status,
+                new_status=order.status,
+                reason="Pagamento confirmado pela equipe",
+                actor_user_id=g.current_user.id,
+                created_at=datetime.now(UTC),
+            )
+        )
+        notification_template = order_payment_email(
+            name=customer.name if customer else "cliente",
+            order_code=order.public_code,
+            status="paid",
+            total=format_order_total(order.total_cents, order.currency),
+        )
+    elif new_status == "failed":
+        payment.status = "failed"
+        payment.failure_code = str(body_json().get("failure_code", "manual_review"))[:80]
+        order.payment_status = "failed"
+        _release_order_reservations(order, "Pagamento não confirmado")
+        old_status = order.status
+        order.status = "cancelled"
+        db.session.add(
+            OrderStatusHistory(
+                order_id=order.id,
+                old_status=old_status,
+                new_status=order.status,
+                reason="Pagamento não confirmado",
+                actor_user_id=g.current_user.id,
+                created_at=datetime.now(UTC),
+            )
+        )
+        notification_template = order_payment_email(
+            name=customer.name if customer else "cliente",
+            order_code=order.public_code,
+            status="failed",
+            total=format_order_total(order.total_cents, order.currency),
+        )
+    else:
+        if payment.status != "paid":
+            return failure(
+                "invalid_transition", "Só pagamentos confirmados podem ser estornados.", status=409
+            )
+        payment.status = "refunded"
+        order.payment_status = "refunded"
+        order.status = "cancelled"
+        notification_template = order_payment_email(
+            name=customer.name if customer else "cliente",
+            order_code=order.public_code,
+            status="refunded",
+            total=format_order_total(order.total_cents, order.currency),
+        )
+    audit(
+        "order.payment_status_changed",
+        "payment",
+        f"Pagamento alterado para {new_status}",
+        str(payment.id),
+    )
+    db.session.commit()
+    if notification_template:
+        notify_order(order=order, template=notification_template)
+        db.session.commit()
+    return success(_order_data(order, include_details=True))
+
+
+@bp.patch("/admin/orders/<order_id>/status")
+@require_permission("orders.manage")
+def order_status_update(order_id: str):
+    order = db.session.get(Order, parse_uuid(order_id)) if parse_uuid(order_id) else None
+    if not order:
+        return failure("not_found", "Pedido não encontrado.", status=404)
+    new_status = str(body_json().get("status", "")).strip()
+    transitions = {
+        "pending_payment": {"cancelled"},
+        "processing": {"shipped", "cancelled"},
+        "shipped": {"delivered"},
+    }
+    if new_status not in transitions.get(order.status, set()):
+        return failure("invalid_transition", "Transição de pedido inválida.", status=409)
+    if new_status == "cancelled" and order.payment_status == "paid":
+        return failure(
+            "payment_refund_required", "Estorne o pagamento antes de cancelar o pedido.", status=409
+        )
+    old_status = order.status
+    order.status = new_status
+    customer = db.session.get(Customer, order.customer_id)
+    notification_template = None
+    if new_status == "cancelled":
+        _release_order_reservations(order, "Pedido cancelado pela equipe")
+    if new_status == "shipped":
+        fulfillment = db.session.scalar(select(Fulfillment).where(Fulfillment.order_id == order.id))
+        if not fulfillment:
+            fulfillment = Fulfillment(order_id=order.id, status="shipped")
+            db.session.add(fulfillment)
+        fulfillment.status = "shipped"
+        fulfillment.shipped_at = datetime.now(UTC)
+    if new_status == "delivered":
+        fulfillment = db.session.scalar(select(Fulfillment).where(Fulfillment.order_id == order.id))
+        if not fulfillment:
+            fulfillment = Fulfillment(order_id=order.id, status="delivered")
+            db.session.add(fulfillment)
+        fulfillment.status = "delivered"
+        fulfillment.delivered_at = datetime.now(UTC)
+    if new_status in {"shipped", "delivered"}:
+        notification_template = order_status_email(
+            name=customer.name if customer else "cliente",
+            order_code=order.public_code,
+            status=new_status,
+        )
+    db.session.add(
+        OrderStatusHistory(
+            order_id=order.id,
+            old_status=old_status,
+            new_status=new_status,
+            reason=str(body_json().get("reason", "")).strip()[:500] or None,
+            actor_user_id=g.current_user.id,
+            created_at=datetime.now(UTC),
+        )
+    )
+    audit(
+        "order.status_changed",
+        "order",
+        f"Status alterado de {old_status} para {new_status}",
+        str(order.id),
+    )
+    db.session.commit()
+    if notification_template:
+        notify_order(order=order, template=notification_template)
+        db.session.commit()
+    return success(_order_data(order, include_details=True))
+
+
+@bp.patch("/admin/orders/<order_id>/fulfillment")
+@require_permission("orders.manage")
+def order_fulfillment_update(order_id: str):
+    order = db.session.get(Order, parse_uuid(order_id)) if parse_uuid(order_id) else None
+    if not order:
+        return failure("not_found", "Pedido não encontrado.", status=404)
+    body = body_json()
+    fulfillment = db.session.scalar(select(Fulfillment).where(Fulfillment.order_id == order.id))
+    if not fulfillment:
+        fulfillment = Fulfillment(order_id=order.id, status="pending")
+        db.session.add(fulfillment)
+    fulfillment.carrier = str(body.get("carrier", fulfillment.carrier or "")).strip()[:100] or None
+    fulfillment.tracking_code = (
+        str(body.get("tracking_code", fulfillment.tracking_code or "")).strip()[:100] or None
+    )
+    audit("order.fulfillment_updated", "fulfillment", "Entrega atualizada", str(fulfillment.id))
+    db.session.commit()
+    return success(_order_data(order, include_details=True))
+
+
 @bp.get("/admin/partners")
 @require_permission("partners.manage")
 def partners_list():
@@ -1165,10 +1774,17 @@ def content_publish(key: str):
 @require_permission("content.manage")
 def content_list():
     rows = db.session.scalars(select(ContentEntry).order_by(ContentEntry.key).limit(200)).all()
-    return success([
-        {"id": str(row.id), "key": row.key, "title": row.title, "content_type": row.content_type}
-        for row in rows
-    ])
+    return success(
+        [
+            {
+                "id": str(row.id),
+                "key": row.key,
+                "title": row.title,
+                "content_type": row.content_type,
+            }
+            for row in rows
+        ]
+    )
 
 
 @bp.delete("/admin/content/<key>")
@@ -1324,6 +1940,4 @@ def google_callback():
     row.consumed_at = datetime.now(UTC)
     audit("integration.connected", "integration", "Google Drive conectado")
     db.session.commit()
-    return redirect(
-        f"{current_app.config['PUBLIC_BASE_URL']}/painel/sistema?drive=connected"
-    )
+    return redirect(f"{current_app.config['PUBLIC_BASE_URL']}/painel/sistema?drive=connected")

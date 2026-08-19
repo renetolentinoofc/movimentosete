@@ -45,7 +45,9 @@ class Config:
     PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "manual")
     MEDIA_PROVIDER = os.getenv("MEDIA_PROVIDER", "local")
     MEDIA_LOCAL_ROOT = os.getenv("MEDIA_LOCAL_ROOT", "./uploads")
-    MEDIA_PUBLIC_BASE_URL = os.getenv("MEDIA_PUBLIC_BASE_URL", "http://localhost:5000/media").rstrip("/")
+    MEDIA_PUBLIC_BASE_URL = os.getenv(
+        "MEDIA_PUBLIC_BASE_URL", "http://localhost:5000/media"
+    ).rstrip("/")
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
@@ -53,6 +55,11 @@ class Config:
     GOOGLE_DRIVE_GALLERY_FOLDER_ID = os.getenv("GOOGLE_DRIVE_GALLERY_FOLDER_ID", "")
     MEDIA_TOKEN_ENCRYPTION_KEY = os.getenv("MEDIA_TOKEN_ENCRYPTION_KEY", "")
     ORDER_RESERVATION_MINUTES = int(os.getenv("ORDER_RESERVATION_MINUTES", "30"))
+    SHIPPING_METHOD = os.getenv("SHIPPING_METHOD", "manual").strip()
+    SHIPPING_LABEL = os.getenv("SHIPPING_LABEL", "Entrega padrão").strip()
+    SHIPPING_FLAT_RATE_CENTS = int(os.getenv("SHIPPING_FLAT_RATE_CENTS", "0"))
+    SHIPPING_FREE_THRESHOLD_CENTS = int(os.getenv("SHIPPING_FREE_THRESHOLD_CENTS", "0"))
+    SHIPPING_ESTIMATED_DAYS = int(os.getenv("SHIPPING_ESTIMATED_DAYS", "0")) or None
     PASSWORD_RESET_MINUTES = int(os.getenv("PASSWORD_RESET_MINUTES", "30"))
     EMAIL_DELIVERY_MODE = os.getenv("EMAIL_DELIVERY_MODE", "log").strip().lower()
     EMAIL_SANDBOX_RECIPIENT = os.getenv("EMAIL_SANDBOX_RECIPIENT", "").strip().lower()
@@ -72,6 +79,8 @@ class Config:
     def validate(cls) -> None:
         if cls.EMAIL_DELIVERY_MODE not in {"log", "sandbox", "live"}:
             raise RuntimeError("EMAIL_DELIVERY_MODE deve ser log, sandbox ou live")
+        if cls.SHIPPING_FLAT_RATE_CENTS < 0 or cls.SHIPPING_FREE_THRESHOLD_CENTS < 0:
+            raise RuntimeError("As tarifas de frete não podem ser negativas")
         if cls.APP_ENV != "production":
             return
         missing: list[str] = []

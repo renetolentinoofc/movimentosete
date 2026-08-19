@@ -40,7 +40,11 @@ def test_internal_only_product_is_not_public_or_purchasable(app, client):
     cart = client.post("/api/v1/carts").json["data"]
     response = client.put(
         "/api/v1/carts/items",
-        json={"cart_token": cart["cart_token"], "variant_id": variant_id, "quantity": 1},
+        json={
+            "cart_token": cart["cart_token"],
+            "variant_id": variant_id,
+            "quantity": 1,
+        },
     )
     assert response.status_code == 404
     assert response.json["error"]["code"] == "variant_unavailable"
@@ -74,6 +78,61 @@ def test_cart_rejects_out_of_stock(app, client):
     )
     assert response.status_code == 409
     assert response.json["error"]["code"] == "out_of_stock"
+
+
+def test_shipping_quote_uses_configured_flat_rate_and_free_threshold(app, client):
+    app.config.update(
+        SHIPPING_FLAT_RATE_CENTS=1500,
+        SHIPPING_FREE_THRESHOLD_CENTS=10000,
+        SHIPPING_LABEL="Entrega padrão",
+        SHIPPING_METHOD="manual",
+        SHIPPING_ESTIMATED_DAYS=5,
+    )
+    with app.app_context():
+        product = Product(
+            name="Produto com frete",
+            slug="produto-com-frete",
+            description="x",
+            price_cents=8000,
+            status="published",
+        )
+        db.session.add(product)
+        db.session.flush()
+        variant = ProductVariant(
+            product_id=product.id, sku="FRETE-1", name="Único", stock_quantity=3
+        )
+        db.session.add(variant)
+        db.session.commit()
+        variant_id = str(variant.id)
+    cart = client.post("/api/v1/carts").json["data"]
+    client.put(
+        "/api/v1/carts/items",
+        json={
+            "cart_token": cart["cart_token"],
+            "variant_id": variant_id,
+            "quantity": 1,
+        },
+    )
+    quoted = client.post(
+        "/api/v1/shipping/quote",
+        json={
+            "cart_token": cart["cart_token"],
+            "address": {"postal_code": "01001000", "state": "SP"},
+        },
+    )
+    assert quoted.status_code == 200
+    assert quoted.json["data"]["shipping_cents"] == 1500
+    assert quoted.json["data"]["estimated_days"] == 5
+    app.config["SHIPPING_FREE_THRESHOLD_CENTS"] = 8000
+    free = client.post(
+        "/api/v1/shipping/quote",
+        json={
+            "cart_token": cart["cart_token"],
+            "address": {"postal_code": "01001000", "state": "SP"},
+        },
+    )
+    assert free.json["data"]["free_shipping"] is True
+    assert free.json["data"]["shipping_cents"] == 0
 
 
 def test_bidding_feature_flag_is_off(app, client):

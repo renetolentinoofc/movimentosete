@@ -106,6 +106,14 @@ def create_app(config: type[Config] | None = None) -> Flask:
 
         click.echo(json.dumps(reconcile_gallery_media(limit), ensure_ascii=False))
 
+    @app.cli.command("expire-inventory-reservations")
+    @click.option("--limit", default=500, show_default=True, type=click.IntRange(1, 5000))
+    def expire_inventory_reservations_command(limit: int) -> None:
+        """Libera reservas de estoque vencidas e expira pedidos não pagos."""
+        from .services.inventory import expire_inventory_reservations
+
+        click.echo(json.dumps(expire_inventory_reservations(limit), ensure_ascii=False))
+
     @app.cli.command("seed")
     def seed_command():
         """Aplica dados iniciais idempotentes."""

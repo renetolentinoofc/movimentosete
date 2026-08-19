@@ -42,8 +42,7 @@ def registration_status_update(*, name: str, protocol: str, status: str) -> Emai
             "A equipe entrará em contato com os próximos passos."
         ),
         "waitlisted": (
-            "Sua inscrição está na lista de espera. "
-            "Avisaremos caso haja uma nova atualização."
+            "Sua inscrição está na lista de espera. Avisaremos caso haja uma nova atualização."
         ),
         "rejected": "Agradecemos sua participação. Sua inscrição não foi selecionada nesta etapa.",
         "withdrawn": (
@@ -109,4 +108,64 @@ def contact_reply(*, name: str, subject: str, message: str, protocol: str) -> Em
             f"Protocolo do atendimento: {protocol}\n\n"
             "Equipe Movimento 7\n"
         ),
+    )
+
+
+def order_created(*, name: str, order_code: str, total: str, expires_at: str) -> EmailTemplate:
+    return EmailTemplate(
+        key="order_created",
+        subject=f"Pedido recebido — {order_code}",
+        text_body=(
+            f"Olá, {name}.\n\n"
+            "Recebemos seu pedido no Movimento 7.\n\n"
+            f"Pedido: {order_code}\n"
+            f"Total: {total}\n"
+            f"A reserva de estoque é válida até: {expires_at}\n\n"
+            "O pagamento ainda não foi aprovado. Nossa equipe enviará as instruções "
+            "e a confirmação.\n\n"
+            "Equipe Movimento 7\n"
+        ),
+    )
+
+
+def order_payment_update(*, name: str, order_code: str, status: str, total: str) -> EmailTemplate:
+    labels = {
+        "paid": "confirmado",
+        "failed": "não confirmado",
+        "refunded": "estornado",
+    }
+    label = labels[status]
+    return EmailTemplate(
+        key=f"order_payment_{status}",
+        subject=f"Pagamento {label} — {order_code}",
+        text_body=(
+            f"Olá, {name}.\n\n"
+            f"O pagamento do pedido {order_code} foi {label}.\n\n"
+            f"Total do pedido: {total}\n\n"
+            "Acompanhe novas atualizações por e-mail.\n\n"
+            "Equipe Movimento 7\n"
+        ),
+    )
+
+
+def order_status_update(*, name: str, order_code: str, status: str) -> EmailTemplate:
+    labels = {
+        "shipped": (
+            "enviado",
+            "Seu pedido foi enviado. A equipe informará o rastreamento quando disponível.",
+        ),
+        "delivered": (
+            "entregue",
+            "Esperamos que você aproveite sua compra. Obrigado por apoiar o Movimento 7.",
+        ),
+        "expired": (
+            "expirado",
+            "A reserva de estoque expirou porque o pagamento não foi confirmado dentro do prazo.",
+        ),
+    }
+    label, message = labels[status]
+    return EmailTemplate(
+        key=f"order_status_{status}",
+        subject=f"Pedido {label} — {order_code}",
+        text_body=f"Olá, {name}.\n\n{message}\n\nPedido: {order_code}\n\nEquipe Movimento 7\n",
     )

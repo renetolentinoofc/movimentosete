@@ -23,6 +23,13 @@ from ..models import (
     ProductVariant,
 )
 from ..security import rate_limited, sha256
+from ..services.email_templates import order_created
+from ..services.order_notifications import (
+    format_order_datetime,
+    format_order_total,
+    notify_order,
+)
+from ..services.shipping import quote_shipping
 from ..validation import normalize_phone, parse_uuid
 
 bp = Blueprint("store", __name__)
@@ -227,6 +234,60 @@ def put_cart_item():
     return success({"updated": True})
 
 
+@bp.post("/shipping/quote")
+def shipping_quote():
+    body = request.get_json(silent=True) or {}
+    cart = get_cart(body)
+    if not cart:
+        return failure("cart_invalid", "Carrinho inexistente ou expirado.", status=404)
+    items = db.session.scalars(select(CartItem).where(CartItem.cart_id == cart.id).limit(100)).all()
+    variants = {
+        row.id: row
+        for row in db.session.scalars(
+            select(ProductVariant).where(ProductVariant.id.in_({item.variant_id for item in items}))
+        ).all()
+    }
+    products = {
+        row.id: row
+        for row in db.session.scalars(
+            select(Product).where(
+                Product.id.in_({variant.product_id for variant in variants.values()})
+            )
+        ).all()
+    }
+    subtotal = 0
+    for item in items:
+        variant = variants.get(item.variant_id)
+        product_row = products.get(variant.product_id) if variant else None
+        if not variant or not product_row or product_row.status != "published":
+            return failure("variant_unavailable", "Um item não está mais disponível.", status=409)
+        subtotal += (
+            variant.price_override_cents
+            if variant.price_override_cents is not None
+            else product_row.price_cents
+        ) * item.quantity
+    try:
+        quote = quote_shipping(
+            subtotal_cents=subtotal,
+            postal_code=str((body.get("address") or {}).get("postal_code", "")),
+            state=str((body.get("address") or {}).get("state", "")),
+        )
+    except ValueError as error:
+        return failure("shipping_address_invalid", str(error), status=422)
+    return success(
+        {
+            "method": quote.method,
+            "label": quote.label,
+            "shipping_cents": quote.shipping_cents,
+            "subtotal_cents": subtotal,
+            "total_cents": subtotal + quote.shipping_cents,
+            "currency": quote.currency,
+            "estimated_days": quote.estimated_days,
+            "free_shipping": quote.free_shipping,
+        }
+    )
+
+
 @bp.post("/checkout")
 def checkout():
     if rate_limited("checkout", 10, 3600):
@@ -322,6 +383,14 @@ def checkout():
             if variant.price_override_cents is not None
             else product_row.price_cents
         ) * item.quantity
+    try:
+        shipping = quote_shipping(
+            subtotal_cents=subtotal,
+            postal_code=str(address_data["postal_code"]),
+            state=str(address_data["state"]),
+        )
+    except ValueError as error:
+        return failure("shipping_address_invalid", str(error), status=422)
     customer = Customer(
         name=str(customer_data["name"]).strip(),
         email=str(customer_data["email"]).strip().lower(),
@@ -349,8 +418,8 @@ def checkout():
         customer_id=customer.id,
         address_id=address.id,
         subtotal_cents=subtotal,
-        shipping_cents=0,
-        total_cents=subtotal,
+        shipping_cents=shipping.shipping_cents,
+        total_cents=subtotal + shipping.shipping_cents,
         terms_version=str(body.get("terms_version", "2026-08-draft")),
         terms_accepted_at=datetime.now(UTC),
     )
@@ -411,6 +480,7 @@ def checkout():
         "status": order.status,
         "payment_status": order.payment_status,
         "total_cents": order.total_cents,
+        "shipping_cents": order.shipping_cents,
     }
     db.session.add(
         IdempotencyKey(
@@ -425,6 +495,16 @@ def checkout():
     )
     cart.status = "converted"
     db.session.commit()
+    notify_order(
+        order=order,
+        template=order_created(
+            name=customer.name,
+            order_code=order.public_code,
+            total=format_order_total(order.total_cents, order.currency),
+            expires_at=format_order_datetime(expires_at),
+        ),
+    )
+    db.session.commit()
     return success(
         {
             "order_code": order.public_code,
@@ -433,6 +513,9 @@ def checkout():
             "payment_status": order.payment_status,
             "payment_provider": current_app.config["PAYMENT_PROVIDER"],
             "total_cents": order.total_cents,
+            "shipping_cents": order.shipping_cents,
+            "shipping_label": shipping.label,
+            "shipping_estimated_days": shipping.estimated_days,
             "reservation_expires_at": expires_at,
             "message": "Pedido criado. Nenhum pagamento foi aprovado automaticamente.",
         },

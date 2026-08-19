@@ -24,6 +24,7 @@ A API falha no startup quando as credenciais essenciais do provedor de mídia ou
 - [ ] O seed inicial só é executado na criação controlada do ambiente.
 - [ ] O health check `/api/v1/health/live` retorna 200.
 - [ ] O Cron Job `movimento7-gallery-reconcile` executa sem erro.
+- [ ] O Cron Job `movimento7-expire-inventory` executa a cada 10 minutos sem erro.
 
 ## Smoke test pós-deploy
 
@@ -35,6 +36,7 @@ A API falha no startup quando as credenciais essenciais do provedor de mídia ou
 6. Verificar uma execução recente da reconciliação da galeria.
 7. Confirmar que uma inscrição e um contato aparecem no painel.
 8. Confirmar que produto sem estoque não pode ser comprado.
+9. Criar um pedido de teste não pago e confirmar que a reserva é liberada após o vencimento.
 
 ## Rollback e incidentes
 
