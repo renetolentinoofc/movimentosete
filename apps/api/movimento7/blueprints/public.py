@@ -34,7 +34,7 @@ from ..security import rate_limited, sha256
 from ..services.communications import dispatch_email
 from ..services.email_delivery import valid_email
 from ..services.email_templates import contact_message_received, registration_confirmation
-from ..services.media import LocalMediaProvider
+from ..services.media import LocalMediaProvider, gallery_media_root, gallery_media_url
 from ..validation import aware_utc, normalize_instagram, normalize_phone, safe_http_url
 
 bp = Blueprint("public", __name__)
@@ -505,7 +505,7 @@ def gallery():
                 "edition": album.slug,
                 "category": media.category,
                 "type": media.media_type,
-                "url": media.storage_key,
+                "url": gallery_media_url(media.provider, media.storage_key, str(media.id)),
                 "title": media.title,
                 "caption": media.caption,
                 "alt": media.alt_text,
@@ -517,6 +517,32 @@ def gallery():
         ],
         meta={"page": page, "limit": limit, "has_more": len(rows) > limit},
     )
+
+
+@bp.get("/media/gallery/<media_id>")
+def public_gallery_media_file(media_id: str):
+    try:
+        parsed = UUID(media_id)
+    except ValueError:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    media = db.session.scalar(
+        select(GalleryMedia)
+        .join(GalleryAlbum)
+        .where(
+            GalleryMedia.id == parsed,
+            GalleryMedia.provider == "local",
+            GalleryMedia.status == "published",
+            GalleryMedia.deleted_at.is_(None),
+            GalleryAlbum.status == "published",
+        )
+    )
+    if not media:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    root = gallery_media_root()
+    target = (root / media.storage_key).resolve()
+    if root not in target.parents or not target.is_file():
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    return send_file(target, mimetype=media.mime_type, as_attachment=False, conditional=True)
 
 
 @bp.get("/partners")

@@ -2,9 +2,19 @@
 
 ## Criação inicial
 
-O Blueprint `render.yaml` cria API, frontend e um PostgreSQL 18 na mesma região. Ele usa `preDeployCommand` para `flask db upgrade` e `initialDeployHook` para o seed inicial. A configuração segue a referência atual do Render para monorepos e Blueprints.
+O Blueprint `render.yaml` cria a API, um Cron Job de reconciliação da galeria e um PostgreSQL 18 na mesma região. A API usa `preDeployCommand` para `flask db upgrade` e `initialDeployHook` para o seed inicial. A configuração segue a referência atual do Render para monorepos e Blueprints.
 
-Antes de sincronizar, configure os valores `sync: false`: `INITIAL_ADMIN_PASSWORD` (12+ caracteres), `DEPLOYED_AT`, `GIT_COMMIT` e, se aplicável, credenciais Google e chave Fernet de mídia. Não sincronize o Blueprint sem autorização do responsável pelo Render.
+Antes de sincronizar, configure os valores `sync: false`: `INITIAL_ADMIN_PASSWORD` (12+ caracteres), `DEPLOYED_AT`, `GIT_COMMIT`, credenciais Google, chave Fernet de mídia e `GOOGLE_DRIVE_GALLERY_FOLDER_ID`. O Cron Job roda a cada seis horas em UTC e usa a mesma base PostgreSQL. Não sincronize o Blueprint sem autorização do responsável pelo Render.
+
+## Reconciliação da galeria
+
+O serviço `movimento7-gallery-reconcile` executa:
+
+```bash
+PYTHONPATH=apps/api FLASK_APP=wsgi:app flask reconcile-gallery --limit 500
+```
+
+O job termina após a verificação; ele não mantém um processo contínuo. Arquivos ausentes, divergentes ou órfãos são registrados para tratamento administrativo e não são removidos automaticamente.
 
 ## Smoke test
 

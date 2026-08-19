@@ -3,8 +3,10 @@ import io
 import json
 import secrets
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 from cryptography.fernet import Fernet, InvalidToken
@@ -13,7 +15,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 
 from ..extensions import db
-from ..models.content import IntegrationCredential
+from ..models.content import GalleryMedia, IntegrationCredential, MediaReconciliationTask
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,7 @@ class StoredMedia:
     mime_type: str
     size_bytes: int
     sha256: str
+    provider_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,21 @@ class ProcessedImage:
     suffix: str
     width: int
     height: int
+
+
+def local_media_root() -> Path:
+    return Path(current_app.config["MEDIA_LOCAL_ROOT"]).expanduser().resolve()
+
+
+def gallery_media_root() -> Path:
+    return local_media_root() / "gallery"
+
+
+def gallery_media_url(provider: str, storage_key: str, media_id: str) -> str:
+    if provider != "local":
+        return storage_key
+    base_url = current_app.config["MEDIA_PUBLIC_BASE_URL"].rstrip("/")
+    return f"{base_url}/gallery/{quote(media_id, safe='')}"
 
 
 def process_portfolio_image(content: bytes) -> ProcessedImage:
@@ -124,10 +142,9 @@ class GoogleDriveMediaProvider(MediaProvider):
             raise RuntimeError("Não foi possível renovar o acesso ao Google Drive")
         return response.json()["access_token"]
 
-    def _product_folder(self, token: str, folder_name: str) -> str:
-        parent = current_app.config["GOOGLE_DRIVE_PRODUCT_FOLDER_ID"]
+    def _named_folder(self, token: str, folder_name: str, parent: str) -> str:
         if not parent:
-            raise RuntimeError("GOOGLE_DRIVE_PRODUCT_FOLDER_ID não configurado")
+            raise RuntimeError("Pasta raiz do Google Drive não configurada")
         query = (
             f"name = '{folder_name.replace(chr(39), chr(92) + chr(39))}' "
             "and mimeType = 'application/vnd.google-apps.folder' "
@@ -159,14 +176,20 @@ class GoogleDriveMediaProvider(MediaProvider):
         return created.json()["id"]
 
     def store(
-        self, content: bytes, safe_suffix: str, mime_type: str, folder_name: str | None = None
+        self,
+        content: bytes,
+        safe_suffix: str,
+        mime_type: str,
+        folder_name: str | None = None,
+        root_folder_id: str | None = None,
+        filename_prefix: str = "produto",
     ) -> StoredMedia:
         token = self._access_token()
-        name = f"produto-{secrets.token_urlsafe(12)}{safe_suffix}"
+        name = f"{filename_prefix}-{secrets.token_urlsafe(12)}{safe_suffix}"
         metadata = {"name": name, "mimeType": mime_type}
-        folder = current_app.config["GOOGLE_DRIVE_PRODUCT_FOLDER_ID"]
+        folder = root_folder_id or current_app.config["GOOGLE_DRIVE_PRODUCT_FOLDER_ID"]
         if folder_name:
-            folder = self._product_folder(token, folder_name)
+            folder = self._named_folder(token, folder_name, folder)
         if folder:
             metadata["parents"] = [folder]
         response = requests.post(
@@ -197,7 +220,169 @@ class GoogleDriveMediaProvider(MediaProvider):
             mime_type,
             len(content),
             hashlib.sha256(content).hexdigest(),
+            provider_id=file_id,
         )
 
     def delete(self, storage_key: str) -> None:
         raise RuntimeError("Exclusão de mídia do Drive exige o identificador original do arquivo")
+
+    def inspect(
+        self, storage_key: str, provider_id: str | None = None
+    ) -> tuple[str, str | None, str | None]:
+        file_id = provider_id or parse_qs(urlparse(storage_key).query).get("id", [None])[0]
+        if not file_id:
+            return "error", None, "Identificador do arquivo do Google Drive ausente"
+        token = self._access_token()
+        response = requests.get(
+            f"https://www.googleapis.com/drive/v3/files/{quote(file_id, safe='')}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"fields": "id,trashed"},
+            timeout=15,
+        )
+        if response.status_code == 404:
+            return "missing", file_id, "Arquivo não encontrado no Google Drive"
+        if not response.ok:
+            return "error", file_id, "Não foi possível consultar o arquivo no Google Drive"
+        if response.json().get("trashed"):
+            return "missing", file_id, "Arquivo enviado para a lixeira do Google Drive"
+        return "completed", file_id, None
+
+    def list_gallery_files(self, root_folder_id: str) -> list[str]:
+        if not root_folder_id:
+            raise RuntimeError("GOOGLE_DRIVE_GALLERY_FOLDER_ID não configurado")
+        token = self._access_token()
+
+        def list_children(parent_id: str, folders_only: bool = False) -> list[dict]:
+            query = f"'{parent_id}' in parents and trashed = false"
+            if folders_only:
+                query += " and mimeType = 'application/vnd.google-apps.folder'"
+            else:
+                query += " and mimeType != 'application/vnd.google-apps.folder'"
+            files: list[dict] = []
+            page_token = None
+            while True:
+                params = {
+                    "q": query,
+                    "fields": "nextPageToken,files(id)",
+                    "pageSize": 1000,
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                response = requests.get(
+                    "https://www.googleapis.com/drive/v3/files",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=params,
+                    timeout=15,
+                )
+                if not response.ok:
+                    raise RuntimeError("Não foi possível listar os arquivos do Google Drive")
+                payload = response.json()
+                files.extend(payload.get("files", []))
+                page_token = payload.get("nextPageToken")
+                if not page_token:
+                    return files
+
+        album_folders = list_children(root_folder_id, folders_only=True)
+        files = list_children(root_folder_id)
+        for folder in album_folders:
+            files.extend(list_children(folder["id"]))
+        return [item["id"] for item in files]
+
+
+def reconcile_gallery_media(limit: int = 200) -> dict[str, int]:
+    rows = db.session.scalars(
+        select(GalleryMedia)
+        .where(GalleryMedia.deleted_at.is_(None))
+        .order_by(GalleryMedia.created_at)
+        .limit(max(1, min(limit, 500)))
+    ).all()
+    counts = Counter()
+    duplicate_hashes = {
+        digest
+        for digest, count in Counter(row.sha256 for row in rows).items()
+        if count > 1
+    }
+    drive = (
+        GoogleDriveMediaProvider()
+        if any(row.provider == "google_drive" for row in rows)
+        or current_app.config["MEDIA_PROVIDER"] == "google_drive"
+        else None
+    )
+    known_drive_ids: set[str] = set()
+    for row in rows:
+        status = "completed"
+        error = None
+        if row.sha256 in duplicate_hashes:
+            status = "duplicate"
+            error = "Mais de uma mídia ativa possui o mesmo checksum"
+        if row.provider == "local":
+            target = (gallery_media_root() / row.storage_key).resolve()
+            root = gallery_media_root()
+            if root not in target.parents or not target.is_file():
+                status, error = "missing", "Arquivo local não encontrado"
+            elif hashlib.sha256(target.read_bytes()).hexdigest() != row.sha256:
+                status, error = "mismatch", "Checksum do arquivo local não corresponde ao catálogo"
+        elif row.provider == "google_drive" and drive:
+            status, row.provider_id, error = drive.inspect(row.storage_key, row.provider_id)
+            if row.provider_id:
+                known_drive_ids.add(row.provider_id)
+        elif row.provider not in {"local", "google_drive"}:
+            status, error = "error", "Provedor de mídia não suportado"
+        row.reconciliation_status = status
+        counts[status] += 1
+        existing = db.session.scalar(
+            select(MediaReconciliationTask).where(
+                MediaReconciliationTask.resource_type == "gallery_media",
+                MediaReconciliationTask.resource_id == row.id,
+                MediaReconciliationTask.action == "inspect",
+                MediaReconciliationTask.status == "pending",
+            )
+        )
+        if status == "completed":
+            if existing:
+                existing.status = "resolved"
+                existing.last_error = None
+        elif existing:
+            existing.attempts += 1
+            existing.last_error = error
+        else:
+            db.session.add(MediaReconciliationTask(
+                provider=row.provider,
+                resource_type="gallery_media",
+                resource_id=row.id,
+                storage_key=row.storage_key,
+                action="inspect",
+                status="pending",
+                attempts=1,
+                last_error=error,
+            ))
+    if drive:
+        orphan_ids = set(
+            drive.list_gallery_files(current_app.config["GOOGLE_DRIVE_GALLERY_FOLDER_ID"])
+        ) - known_drive_ids
+        for file_id in orphan_ids:
+            storage_key = f"https://drive.google.com/uc?export=view&id={file_id}"
+            existing = db.session.scalar(
+                select(MediaReconciliationTask).where(
+                    MediaReconciliationTask.provider == "google_drive",
+                    MediaReconciliationTask.resource_type == "gallery_media",
+                    MediaReconciliationTask.storage_key == storage_key,
+                    MediaReconciliationTask.action == "orphan",
+                    MediaReconciliationTask.status == "pending",
+                )
+            )
+            if existing:
+                existing.attempts += 1
+            else:
+                db.session.add(MediaReconciliationTask(
+                    provider="google_drive",
+                    resource_type="gallery_media",
+                    storage_key=storage_key,
+                    action="orphan",
+                    status="pending",
+                    attempts=1,
+                    last_error="Arquivo no Drive sem registro correspondente na galeria",
+                ))
+            counts["orphan"] += 1
+    db.session.commit()
+    return dict(counts)

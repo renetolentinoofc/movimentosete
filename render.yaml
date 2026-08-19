@@ -91,32 +91,41 @@ services:
         sync: false
       - key: GOOGLE_DRIVE_PRODUCT_FOLDER_ID
         sync: false
-
-  - type: web
-    name: movimento7-web
-    runtime: node
+      - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
+        sync: false
+  - type: cron
+    name: movimento7-gallery-reconcile
+    runtime: python
     plan: starter
     region: ohio
-    buildCommand: npm ci && npm run build -w @movimento7/web
-    startCommand: npm run start -w @movimento7/web -- --hostname 0.0.0.0 --port $PORT
-    healthCheckPath: /saude
+    schedule: "0 */6 * * *"
+    buildCommand: pip install -e apps/api
+    startCommand: PYTHONPATH=apps/api FLASK_APP=wsgi:app flask reconcile-gallery --limit 500
     buildFilter:
       paths:
-        - apps/web/**
-        - packages/**
-        - package.json
-        - package-lock.json
+        - apps/api/**
+        - migrations/**
         - render.yaml
     envVars:
-      - key: NODE_VERSION
-        value: 24.10.0
-      - key: NODE_ENV
+      - key: DATABASE_URL
+        fromDatabase:
+          name: movimento7-db
+          property: connectionString
+      - key: APP_ENV
         value: production
-      - key: NEXT_PUBLIC_SITE_URL
+      - key: SECRET_KEY
+        sync: false
+      - key: PUBLIC_BASE_URL
         value: https://movimento7.com.br
-      - key: INTERNAL_API_URL
-        value: https://movimento7-api.onrender.com
-      - key: APP_VERSION
-        value: 0.1.0
-      - key: GIT_COMMIT
+      - key: MEDIA_PROVIDER
+        value: google_drive
+      - key: MEDIA_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_DRIVE_PRODUCT_FOLDER_ID
+        sync: false
+      - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
         sync: false

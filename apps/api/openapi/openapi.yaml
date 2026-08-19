@@ -104,6 +104,23 @@ paths:
       operationId: listGallery
       responses:
         '200': { $ref: '#/components/responses/Success' }
+  /media/gallery/{id}:
+    get:
+      tags: [public]
+      operationId: getPublicGalleryMediaFile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Mídia publicada da galeria
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/Error' }
   /partners:
     get:
       tags: [public]
@@ -784,6 +801,228 @@ paths:
         '409': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /admin/auction-lots:
+    get:
+      tags: [admin]
+      operationId: listAdminAuctionLots
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin]
+      operationId: createAdminAuctionLot
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminAuctionLotInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/auction-lots/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminAuctionLotStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, published, open, closed, cancelled, archived] }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/users:
+    get:
+      tags: [admin]
+      operationId: listAdminUsers
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin]
+      operationId: createAdminUser
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminUserInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/privacy/requests:
+    get:
+      tags: [admin]
+      operationId: listAdminPrivacyRequests
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/privacy/requests/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminPrivacyRequestStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [received, in_review, resolved, rejected] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/gallery/albums:
+    get:
+      tags: [admin]
+      operationId: listAdminGalleryAlbums
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin]
+      operationId: createAdminGalleryAlbum
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminGalleryAlbumInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/gallery/albums/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminGalleryAlbumStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, published, archived] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/gallery/albums/{id}/media:
+    get:
+      tags: [admin]
+      operationId: listAdminGalleryMedia
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/gallery/albums/{id}/media/upload:
+    post:
+      tags: [admin]
+      operationId: uploadAdminGalleryMedia
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminGalleryMediaUpload'
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/gallery/media/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminGalleryMediaStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, published, archived] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/gallery/order:
+    patch:
+      tags: [admin]
+      operationId: reorderAdminGalleryMedia
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  maxItems: 200
+                  items: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
 components:
   parameters:
     Slug:
@@ -882,6 +1121,46 @@ components:
       properties:
         recipient: { type: string, format: email, maxLength: 180 }
         idempotency_key: { type: string, minLength: 8, maxLength: 100 }
+    AdminAuctionLotInput:
+      type: object
+      required: [title, artist_name, starting_bid_cents, minimum_increment_cents]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 180 }
+        slug: { type: string, maxLength: 160 }
+        artist_name: { type: string, minLength: 1, maxLength: 140 }
+        starting_bid_cents: { type: integer, minimum: 0 }
+        minimum_increment_cents: { type: integer, minimum: 1 }
+        technique: { type: string, maxLength: 140 }
+        dimensions: { type: string, maxLength: 120 }
+        description: { type: string }
+        rules: { type: string }
+    AdminUserInput:
+      type: object
+      required: [email, name, password, roles]
+      properties:
+        email: { type: string, format: email, maxLength: 180 }
+        name: { type: string, minLength: 1, maxLength: 140 }
+        password: { type: string, format: password, minLength: 12 }
+        roles:
+          type: array
+          items: { type: string }
+    AdminGalleryAlbumInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 2, maxLength: 180 }
+        slug: { type: string, maxLength: 160 }
+        description: { type: string }
+    AdminGalleryMediaUpload:
+      type: object
+      required: [file, title, category, alt_text]
+      properties:
+        file: { type: string, format: binary }
+        title: { type: string, maxLength: 180 }
+        category: { type: string, maxLength: 60 }
+        alt_text: { type: string, maxLength: 180 }
+        caption: { type: string, maxLength: 600 }
+        credit: { type: string, maxLength: 180 }
     AdminContactTriageInput:
       type: object
       properties:

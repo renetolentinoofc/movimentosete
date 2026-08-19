@@ -98,6 +98,14 @@ def create_app(config: type[Config] | None = None) -> Flask:
         db.session.rollback()
         return failure("internal_error", "Não foi possível concluir a operação.", status=500)
 
+    @app.cli.command("reconcile-gallery")
+    @click.option("--limit", default=500, show_default=True, type=click.IntRange(1, 500))
+    def reconcile_gallery_command(limit: int) -> None:
+        """Verifica mídias da galeria e registra pendências de reconciliação."""
+        from .services.media import reconcile_gallery_media
+
+        click.echo(json.dumps(reconcile_gallery_media(limit), ensure_ascii=False))
+
     @app.cli.command("seed")
     def seed_command():
         """Aplica dados iniciais idempotentes."""
