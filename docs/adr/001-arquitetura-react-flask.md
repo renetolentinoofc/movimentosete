@@ -1,4 +1,4 @@
-# ADR 001 — Monorepo Next.js e Flask
+# ADR 001 — Repositórios Next.js e Flask
 
 - Status: aceita
 - Data: 2026-08-12
@@ -9,12 +9,11 @@ O Movimento 7 precisa combinar conteúdo indexável, formulários interativos, o
 
 ## Decisão
 
-Usar um monorepo com dois processos implantáveis:
+Usar dois repositórios com processos implantáveis separados:
 
-- `apps/web`: Next.js 16, React 19 e TypeScript 5.9 em modo estrito. Server Components são o padrão. Client Components ficam restritos a formulários, carrinho, menus, filtros, uploads e atualizações de estado.
+- `movimento7-web/apps/web`: Next.js 16, React 19 e TypeScript 5.9 em modo estrito. Server Components são o padrão. Client Components ficam restritos a formulários, carrinho, menus, filtros, uploads e atualizações de estado.
 - `apps/api`: Flask 3.1, SQLAlchemy 2, Flask-Migrate/Alembic e PostgreSQL. A API REST versionada contém todas as regras de negócio e emite OpenAPI 3.1.
-- `packages/ui`: tokens CSS e componentes React reutilizáveis sem identidade visual de terceiros.
-- `packages/config`: configuração TypeScript e convenções compartilhadas.
+- `movimento7-web/packages/ui`: tokens CSS e componentes React reutilizáveis sem identidade visual de terceiros.
 
 O navegador conversa com `/api/*` no domínio do frontend. O Next.js encaminha essas chamadas ao Flask sem reproduzir regras de negócio. Sessões administrativas usam cookie opaco `HttpOnly`; mutações usam CSRF. Dados comerciais e decisões de autorização permanecem no Flask/PostgreSQL.
 
@@ -39,4 +38,4 @@ Há dois builds e dois serviços no Render. O contrato OpenAPI e os testes de co
 
 ## Versões
 
-As versões iniciais foram verificadas nos registros oficiais de pacotes em 2026-08-12: Next 16.3, React 19.2, Flask 3.1 e SQLAlchemy 2.0. O TypeScript 7 estava publicado, mas ainda não era aceito pelo `openapi-typescript` 7; por isso o frontend fixa TypeScript 5.9.3, que mantém modo estrito sem forçar uma árvore incompatível. O projeto fixa versões no lockfile e atualiza dependências por PR com CI.
+As versões iniciais foram verificadas nos registros oficiais de pacotes em 2026-08-12: Next 16.3, React 19.2, Flask 3.1 e SQLAlchemy 2.0. O TypeScript 7 estava publicado, mas ainda não era aceito pelo `openapi-typescript` 7; por isso o frontend fixa TypeScript 5.9.3, que mantém modo estrito sem forçar uma árvore incompatível. Cada repositório fixa suas versões no próprio lockfile e atualiza dependências por PR com CI.

@@ -1,4 +1,0 @@
-import { cookies } from "next/headers";
-import { NextRequest,NextResponse } from "next/server";
-const origin=process.env.INTERNAL_API_URL??"http://127.0.0.1:5000";
-export async function PUT(request:NextRequest){const jar=await cookies();let token=jar.get("m7_cart")?.value;if(!token){const created=await fetch(`${origin}/api/v1/carts`,{method:"POST"});const payload=await created.json();token=payload.data?.cart_token;if(!token)return NextResponse.json(payload,{status:created.status});}const body=await request.json();const upstream=await fetch(`${origin}/api/v1/carts/items`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,cart_token:token})});const response=NextResponse.json(await upstream.json(),{status:upstream.status});response.cookies.set("m7_cart",token,{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production",maxAge:14*86400,path:"/"});return response;}

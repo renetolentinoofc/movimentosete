@@ -12,10 +12,15 @@ import requests
 from cryptography.fernet import Fernet, InvalidToken
 from flask import Blueprint, current_app, g, redirect, request
 from sqlalchemy import func, select
+from werkzeug.security import generate_password_hash
 
 from ..extensions import db
 from ..http import failure, success
 from ..models import (
+    AdminUser,
+    Artwork,
+    AuctionLot,
+    AuctionLotStatusHistory,
     ContentEntry,
     ContentVersion,
     EventEdition,
@@ -24,16 +29,200 @@ from ..models import (
     IntegrationCredential,
     OAuthState,
     Partner,
+    PrivacyRequest,
     Product,
     ProductMedia,
     ProductVariant,
     Registration,
+    Role,
 )
 from ..security import audit, require_permission, sha256
-from ..services.media import GoogleDriveMediaProvider, LocalMediaProvider, process_portfolio_image
+from ..services.media import (
+    GoogleDriveMediaProvider,
+    LocalMediaProvider,
+    gallery_media_root,
+    gallery_media_url,
+    process_portfolio_image,
+    reconcile_gallery_media,
+)
 from ..validation import aware_utc, parse_uuid, safe_http_url
 
 bp = Blueprint("admin_ops", __name__)
+
+
+@bp.get("/admin/auction-lots")
+@require_permission("auction.manage")
+def auction_lots_list():
+    rows = db.session.execute(
+        select(AuctionLot, Artwork).join(Artwork).order_by(AuctionLot.created_at.desc()).limit(100)
+    ).all()
+    return success([
+        {
+            "id": str(lot.id),
+            "slug": lot.slug,
+            "title": lot.title,
+            "artist_name": artwork.artist_name,
+            "starting_bid_cents": lot.starting_bid_cents,
+            "minimum_increment_cents": lot.minimum_increment_cents,
+            "current_bid_cents": lot.current_bid_cents,
+            "opens_at": lot.opens_at,
+            "closes_at": lot.closes_at,
+            "status": lot.status,
+        }
+        for lot, artwork in rows
+    ])
+
+
+@bp.post("/admin/auction-lots")
+@require_permission("auction.manage")
+def auction_lot_create():
+    body = body_json()
+    title = str(body.get("title", "")).strip()
+    slug = normalized_slug(str(body.get("slug") or title))
+    artist_name = str(body.get("artist_name", "")).strip()
+    try:
+        starting_bid = int(body.get("starting_bid_cents", 0))
+        increment = int(body.get("minimum_increment_cents", 0))
+    except (TypeError, ValueError):
+        starting_bid = increment = 0
+    if not title or not slug or not artist_name or starting_bid < 0 or increment <= 0:
+        return failure("validation_error", "Informe título, artista e valores válidos.", status=422)
+    if db.session.scalar(select(AuctionLot.id).where(AuctionLot.slug == slug)):
+        return failure("conflict", "Já existe um lote com este slug.", status=409)
+    artwork = Artwork(
+        title=title[:180], slug=f"{slug}-obra"[:180], artist_name=artist_name[:140],
+        technique=str(body.get("technique", "")).strip()[:140] or None,
+        dimensions=str(body.get("dimensions", "")).strip()[:120] or None,
+        description=str(body.get("description", "")).strip() or None,
+        status="draft",
+    )
+    db.session.add(artwork)
+    db.session.flush()
+    lot = AuctionLot(
+        artwork_id=artwork.id, slug=slug, title=title[:180],
+        rules=str(body.get("rules", "")).strip() or None,
+        starting_bid_cents=starting_bid, minimum_increment_cents=increment, status="draft",
+    )
+    db.session.add(lot)
+    audit("auction_lot.created", "auction_lot", "Lote de leilão criado", str(lot.id))
+    db.session.commit()
+    return success({"id": str(lot.id), "slug": lot.slug, "status": lot.status}, status=201)
+
+
+@bp.patch("/admin/auction-lots/<lot_id>/status")
+@require_permission("auction.manage")
+def auction_lot_status(lot_id: str):
+    parsed = parse_uuid(lot_id)
+    lot = db.session.get(AuctionLot, parsed) if parsed else None
+    if not lot:
+        return failure("not_found", "Lote não encontrado.", status=404)
+    new_status = str(body_json().get("status", "")).strip()
+    transitions = {
+        "draft": {"published", "archived"},
+        "published": {"open", "archived"},
+        "open": {"closed", "cancelled"},
+        "closed": {"archived"},
+        "cancelled": {"archived"},
+        "archived": {"draft"},
+    }
+    if new_status not in transitions.get(lot.status, set()):
+        return failure("invalid_transition", "Transição de status inválida.", status=409)
+    old_status = lot.status
+    lot.status = new_status
+    db.session.add(AuctionLotStatusHistory(
+        lot_id=lot.id, old_status=old_status, new_status=new_status,
+        reason=str(body_json().get("reason", "")).strip()[:500] or None,
+        actor_user_id=g.current_user.id, created_at=datetime.now(UTC),
+    ))
+    audit(
+        "auction_lot.status_changed", "auction_lot",
+        f"Status alterado de {old_status} para {new_status}", str(lot.id),
+    )
+    db.session.commit()
+    return success({"id": str(lot.id), "status": lot.status})
+
+
+@bp.get("/admin/users")
+@require_permission("users.manage")
+def users_list():
+    rows = db.session.scalars(select(AdminUser).order_by(AdminUser.name).limit(100)).all()
+    return success([
+        {
+            "id": str(row.id), "name": row.name, "email": row.email,
+            "active": row.active, "must_change_password": row.must_change_password,
+            "roles": [role.slug for role in row.roles],
+        }
+        for row in rows
+    ])
+
+
+@bp.post("/admin/users")
+@require_permission("users.manage")
+def user_create():
+    body = body_json()
+    email = str(body.get("email", "")).strip().lower()
+    name = str(body.get("name", "")).strip()
+    password = str(body.get("password", ""))
+    role_slugs = body.get("roles", [])
+    if (
+        not email or "@" not in email or not name or len(password) < 12
+        or not isinstance(role_slugs, list)
+    ):
+        return failure(
+            "validation_error", "Informe nome, e-mail, senha forte e papéis.", status=422
+        )
+    if db.session.scalar(select(AdminUser.id).where(AdminUser.email == email)):
+        return failure("conflict", "Já existe um usuário com este e-mail.", status=409)
+    roles = db.session.scalars(select(Role).where(Role.slug.in_(role_slugs))).all()
+    if len(roles) != len(set(role_slugs)):
+        return failure("validation_error", "Um ou mais papéis não existem.", status=422)
+    row = AdminUser(
+        email=email[:180], name=name[:140],
+        password_hash=generate_password_hash(password),
+        must_change_password=True, roles=roles,
+    )
+    db.session.add(row)
+    db.session.flush()
+    audit("admin_user.created", "admin_user", "Usuário administrativo criado", str(row.id))
+    db.session.commit()
+    return success({"id": str(row.id), "email": row.email}, status=201)
+
+
+@bp.get("/admin/privacy/requests")
+@require_permission("privacy.manage")
+def privacy_requests_list():
+    rows = db.session.scalars(
+        select(PrivacyRequest).order_by(PrivacyRequest.created_at.desc()).limit(100)
+    ).all()
+    return success([
+        {
+            "id": str(row.id), "protocol": row.protocol,
+            "request_type": row.request_type, "status": row.status,
+            "created_at": row.created_at, "resolved_at": row.resolved_at,
+        }
+        for row in rows
+    ])
+
+
+@bp.patch("/admin/privacy/requests/<request_id>/status")
+@require_permission("privacy.manage")
+def privacy_request_status(request_id: str):
+    parsed = parse_uuid(request_id)
+    row = db.session.get(PrivacyRequest, parsed) if parsed else None
+    if not row:
+        return failure("not_found", "Solicitação de privacidade não encontrada.", status=404)
+    status = str(body_json().get("status", "")).strip()
+    if status not in {"received", "in_review", "resolved", "rejected"}:
+        return failure("validation_error", "Status inválido.", status=422)
+    row.status = status
+    row.resolved_by_id = g.current_user.id if status in {"resolved", "rejected"} else None
+    row.resolved_at = datetime.now(UTC) if status in {"resolved", "rejected"} else None
+    audit(
+        "privacy_request.status_changed", "privacy_request",
+        "Status da solicitação LGPD alterado", str(row.id),
+    )
+    db.session.commit()
+    return success({"id": str(row.id), "status": row.status, "resolved_at": row.resolved_at})
 
 
 def gallery_album_data(row: GalleryAlbum) -> dict:
@@ -73,6 +262,190 @@ def gallery_album_create():
     audit("gallery.album_created", "gallery_album", "Álbum da galeria criado", str(row.id))
     db.session.commit()
     return success(gallery_album_data(row), status=201)
+
+
+@bp.patch("/admin/gallery/albums/<album_id>/status")
+@require_permission("gallery.manage")
+def gallery_album_status(album_id: str):
+    album = db.session.get(GalleryAlbum, parse_uuid(album_id)) if parse_uuid(album_id) else None
+    if not album:
+        return failure("not_found", "Álbum não encontrado.", status=404)
+    status = str(body_json().get("status", "")).strip()
+    if status not in {"draft", "published", "archived"}:
+        return failure("validation_error", "Status do álbum inválido.", status=422)
+    if status == "published":
+        published_media = db.session.scalar(
+            select(GalleryMedia.id).where(
+                GalleryMedia.album_id == album.id,
+                GalleryMedia.status == "published",
+                GalleryMedia.deleted_at.is_(None),
+            )
+        )
+        if not published_media:
+            return failure(
+                "validation_error",
+                "Publique ao menos uma mídia antes de publicar o álbum.",
+                status=422,
+            )
+        if not album.published_at:
+            album.published_at = datetime.now(UTC)
+    elif album.status == "published":
+        album.published_at = None
+    album.status = status
+    audit(
+        "gallery.album_status_changed", "gallery_album", "Status do álbum alterado", str(album.id)
+    )
+    db.session.commit()
+    return success(gallery_album_data(album))
+
+
+@bp.patch("/admin/gallery/media/<media_id>/status")
+@require_permission("gallery.manage")
+def gallery_media_status(media_id: str):
+    media = db.session.get(GalleryMedia, parse_uuid(media_id)) if parse_uuid(media_id) else None
+    if not media or media.deleted_at:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    status = str(body_json().get("status", "")).strip()
+    if status not in {"draft", "published", "archived"}:
+        return failure("validation_error", "Status da mídia inválido.", status=422)
+    media.status = status
+    audit(
+        "gallery.media_status_changed", "gallery_media", "Status da mídia alterado", str(media.id)
+    )
+    db.session.commit()
+    return success(gallery_media_data(media))
+
+
+def gallery_media_data(row: GalleryMedia) -> dict:
+    return {
+        "id": str(row.id),
+        "album_id": str(row.album_id),
+        "category": row.category,
+        "provider": row.provider,
+        "url": gallery_media_url(row.provider, row.storage_key, str(row.id)),
+        "media_type": row.media_type,
+        "mime_type": row.mime_type,
+        "size_bytes": row.size_bytes,
+        "width": row.width,
+        "height": row.height,
+        "title": row.title,
+        "caption": row.caption,
+        "alt_text": row.alt_text,
+        "credit": row.credit,
+        "display_order": row.display_order,
+        "status": row.status,
+        "reconciliation_status": row.reconciliation_status,
+    }
+
+
+@bp.get("/admin/gallery/albums/<album_id>/media")
+@require_permission("gallery.manage")
+def gallery_media_list(album_id: str):
+    album = db.session.get(GalleryAlbum, parse_uuid(album_id)) if parse_uuid(album_id) else None
+    if not album:
+        return failure("not_found", "Álbum não encontrado.", status=404)
+    rows = db.session.scalars(
+        select(GalleryMedia)
+        .where(GalleryMedia.album_id == album.id, GalleryMedia.deleted_at.is_(None))
+        .order_by(GalleryMedia.display_order, GalleryMedia.created_at)
+        .limit(200)
+    ).all()
+    return success([gallery_media_data(row) for row in rows])
+
+
+@bp.post("/admin/gallery/albums/<album_id>/media/upload")
+@require_permission("gallery.manage")
+def gallery_media_upload(album_id: str):
+    album = db.session.get(GalleryAlbum, parse_uuid(album_id)) if parse_uuid(album_id) else None
+    uploaded = request.files.get("file")
+    title = request.form.get("title", "").strip()
+    category = request.form.get("category", "").strip()
+    alt_text = request.form.get("alt_text", "").strip()
+    if (
+        not album
+        or not uploaded
+        or not uploaded.filename
+        or not title
+        or not category
+        or not alt_text
+    ):
+        return failure(
+            "validation_error",
+            "Álbum, arquivo, título, categoria e texto alternativo são obrigatórios.",
+            status=422,
+        )
+    try:
+        processed = process_portfolio_image(uploaded.read())
+        content_sha256 = hashlib.sha256(processed.content).hexdigest()
+        if db.session.scalar(
+            select(GalleryMedia.id).where(
+                GalleryMedia.sha256 == content_sha256,
+                GalleryMedia.deleted_at.is_(None),
+            )
+        ):
+            return failure(
+                "duplicate_media",
+                "Esta imagem já está cadastrada na galeria.",
+                status=409,
+            )
+        if current_app.config["MEDIA_PROVIDER"] == "google_drive":
+            provider = GoogleDriveMediaProvider()
+            stored = provider.store(
+                processed.content,
+                processed.suffix,
+                processed.mime_type,
+                folder_name=album.slug,
+                root_folder_id=current_app.config["GOOGLE_DRIVE_GALLERY_FOLDER_ID"],
+                filename_prefix="galeria",
+            )
+        else:
+            provider = LocalMediaProvider(gallery_media_root())
+            stored = provider.store(processed.content, processed.suffix, processed.mime_type)
+    except (RuntimeError, ValueError) as error:
+        return failure("media_upload_failed", str(error), status=422)
+    media = GalleryMedia(
+        album_id=album.id,
+        category=category[:60],
+        provider=stored.provider,
+        provider_id=stored.provider_id,
+        storage_key=stored.storage_key,
+        safe_name=uploaded.filename[:255],
+        media_type="image",
+        mime_type=stored.mime_type,
+        size_bytes=stored.size_bytes,
+        width=processed.width,
+        height=processed.height,
+        sha256=content_sha256,
+        title=title[:180],
+        caption=request.form.get("caption", "").strip()[:600] or None,
+        alt_text=alt_text[:180],
+        credit=request.form.get("credit", "").strip()[:180] or None,
+        display_order=db.session.scalar(
+            select(func.coalesce(func.max(GalleryMedia.display_order), -1) + 1).where(
+                GalleryMedia.album_id == album.id, GalleryMedia.deleted_at.is_(None)
+            )
+        ),
+        status="draft",
+        reconciliation_status="completed",
+    )
+    db.session.add(media)
+    audit("gallery_media.uploaded", "gallery_media", "Imagem da galeria enviada", str(media.id))
+    db.session.commit()
+    return success(gallery_media_data(media), status=201)
+
+
+@bp.post("/admin/gallery/reconcile")
+@bp.post("/admin/gallery/reconcile/retry")
+@require_permission("gallery.manage")
+def gallery_reconcile():
+    try:
+        summary = reconcile_gallery_media()
+    except RuntimeError as error:
+        db.session.rollback()
+        return failure("reconciliation_failed", str(error), status=502)
+    audit("gallery.reconciled", "gallery_media", "Reconciliação da galeria executada")
+    db.session.commit()
+    return success(summary)
 
 
 def body_json() -> dict:

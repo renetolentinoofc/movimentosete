@@ -1,1 +1,0 @@
-import Link from "next/link";export default function Limited(){return <section className="section"><div className="container"><p className="eyebrow">Erro 429</p><h1>Vamos dar um tempo</h1><p className="lead">Muitas tentativas foram recebidas. Aguarde antes de tentar novamente.</p><Link className="button" href="/">VOLTAR AO INÍCIO</Link></div></section>}

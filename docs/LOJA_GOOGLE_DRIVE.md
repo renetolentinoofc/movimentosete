@@ -34,3 +34,7 @@ No primeiro uso, entre em Sistema, autorize o Drive e depois cadastre o produto.
 - O texto alternativo é obrigatório para acessibilidade.
 - O código atual não apaga arquivos do Drive automaticamente; exclusões devem ser reconciliadas antes de habilitar remoção automática.
 - Em desenvolvimento, mantenha `MEDIA_PROVIDER=local`; o fluxo do Drive deve ser validado com uma conta/pasta de sandbox antes da produção.
+
+## Galeria
+
+A galeria usa uma raiz independente, configurada em `GOOGLE_DRIVE_GALLERY_FOLDER_ID`. Cada álbum cria ou reutiliza uma subpasta pelo slug do álbum; a pasta de produtos (`GOOGLE_DRIVE_PRODUCT_FOLDER_ID`) nunca é usada para uploads da galeria.

@@ -4,10 +4,9 @@ Plataforma nova do Movimento 7: Next.js/React no frontend, Flask REST na API e P
 
 ## Estrutura
 
-- `apps/web`: Next.js 16, React 19, TypeScript estrito e CSS por tokens;
+- `../movimento7-web`: repositório oficial do frontend Next.js 16, React 19 e TypeScript estrito;
 - `apps/api`: Flask 3.1, SQLAlchemy 2, serviços de domínio e OpenAPI 3.1;
 - `migrations`: primeira migração completa Alembic;
-- `packages/ui`: design tokens compartilhados;
 - `tests`: testes API e frontend;
 - `docs`: arquitetura, banco, operação, LGPD e deploy.
 
@@ -20,14 +19,15 @@ docker compose up -d postgres
 python3 -m venv .venv
 .venv/bin/pip install -e 'apps/api[dev]'
 cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env.local
 export DATABASE_URL=postgresql+psycopg://movimento7:movimento7-local@127.0.0.1:54327/movimento7
 export INITIAL_ADMIN_PASSWORD='defina-uma-senha-local-forte'
 PYTHONPATH=apps/api FLASK_APP=wsgi:app .venv/bin/flask db upgrade
 PYTHONPATH=apps/api FLASK_APP=wsgi:app .venv/bin/flask seed
-npm ci
 PYTHONPATH=apps/api FLASK_APP=wsgi:app .venv/bin/flask run --port 5000
-npm run dev -w @movimento7/web
+
+# Em outro terminal, no repositório ../movimento7-web:
+npm ci
+npm run dev:web
 ```
 
 Abra `http://localhost:3000`. O seed pode ser repetido sem duplicar categorias, papéis, parceiros ou produtos. Para recriar somente o banco local, remova o volume Docker explicitamente e execute migração/seed novamente; nunca faça isso em recurso externo.
@@ -37,10 +37,11 @@ Abra `http://localhost:3000`. O seed pode ser repetido sem duplicar categorias, 
 ```bash
 .venv/bin/ruff check apps/api/movimento7 tests/api
 .venv/bin/pytest tests/api
-npm run lint -w @movimento7/web
-npm run typecheck -w @movimento7/web
-npm test -w @movimento7/web
-npm run build -w @movimento7/web
+cd ../movimento7-web
+npm run lint
+npm run typecheck
+npm run test:web
+npm run build
 ```
 
 ## Deploy

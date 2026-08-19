@@ -1,1 +1,0 @@
-import Link from "next/link";export default function Forbidden(){return <section className="section"><div className="container"><p className="eyebrow">Erro 403</p><h1>Acesso não autorizado</h1><p className="lead">Sua conta não possui permissão para esta área.</p><Link className="button" href="/">VOLTAR AO INÍCIO</Link></div></section>}
