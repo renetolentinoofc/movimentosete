@@ -127,6 +127,45 @@ def test_gallery_media_upload_rejects_duplicate_image(app, client, tmp_path, mon
     assert second.json["error"]["code"] == "duplicate_media"
 
 
+def test_gallery_order_cannot_move_media_between_albums(app, client):
+    album_id = create_gallery_context(app)
+    csrf = login(client)
+    with app.app_context():
+        other_album = GalleryAlbum(title="Edição 02", slug="edicao-02", status="draft")
+        first = GalleryMedia(
+            album_id=UUID(album_id), category="Eventos", provider="local", storage_key="one.webp",
+            safe_name="one.webp", media_type="image", mime_type="image/webp", size_bytes=1,
+            width=1, height=1, sha256="1" * 64, title="Um", alt_text="Um", display_order=0,
+            status="draft", reconciliation_status="completed",
+        )
+        db.session.add(other_album)
+        db.session.flush()
+        foreign = GalleryMedia(
+            album_id=other_album.id, category="Eventos", provider="local", storage_key="two.webp",
+            safe_name="two.webp", media_type="image", mime_type="image/webp", size_bytes=1,
+            width=1, height=1, sha256="2" * 64, title="Dois", alt_text="Dois", display_order=0,
+            status="draft", reconciliation_status="completed",
+        )
+        db.session.add_all([first, foreign])
+        db.session.commit()
+        first_id, foreign_id = str(first.id), str(foreign.id)
+
+    rejected = client.patch(
+        "/api/v1/admin/gallery/order",
+        json={"album_id": album_id, "ids": [foreign_id]},
+        headers={"X-CSRF-Token": csrf},
+    )
+    accepted = client.patch(
+        "/api/v1/admin/gallery/order",
+        json={"album_id": album_id, "ids": [first_id]},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json["error"]["code"] == "validation_error"
+    assert accepted.status_code == 200
+
+
 def test_gallery_publication_requires_media_and_exposes_published_content(
     app, client, tmp_path, monkeypatch
 ):

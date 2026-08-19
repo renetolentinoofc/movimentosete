@@ -942,14 +942,27 @@ def content_publish(key: str):
 @bp.patch("/admin/gallery/order")
 @require_permission("gallery.manage")
 def gallery_order():
+    album_id = parse_uuid(body_json().get("album_id"))
     ids = body_json().get("ids", [])
-    if not isinstance(ids, list) or len(ids) > 200:
+    if not album_id or not isinstance(ids, list) or len(ids) > 200:
         return failure("validation_error", "Ordem inválida.", status=422)
+    parsed_ids = [parse_uuid(raw) for raw in ids]
+    if any(parsed is None for parsed in parsed_ids) or len(set(parsed_ids)) != len(parsed_ids):
+        return failure(
+            "validation_error", "A ordem contém IDs inválidos ou duplicados.", status=422
+        )
+    rows = db.session.scalars(
+        select(GalleryMedia).where(
+            GalleryMedia.id.in_(parsed_ids),
+            GalleryMedia.album_id == album_id,
+            GalleryMedia.deleted_at.is_(None),
+        )
+    ).all()
+    if len(rows) != len(parsed_ids):
+        return failure("validation_error", "A ordem contém mídia de outro álbum.", status=422)
+    by_id = {row.id: row for row in rows}
     for order, raw in enumerate(ids):
-        parsed = parse_uuid(raw)
-        row = db.session.get(GalleryMedia, parsed) if parsed else None
-        if row:
-            row.display_order = order
+        by_id[parse_uuid(raw)].display_order = order
     audit("gallery.reordered", "gallery_media", "Ordem da galeria salva")
     db.session.commit()
     return success({"saved": True})
