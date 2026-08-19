@@ -19,6 +19,7 @@ from ..models import (
     ContentEntry,
     ContentVersion,
     EventEdition,
+    GalleryAlbum,
     GalleryMedia,
     IntegrationCredential,
     OAuthState,
@@ -33,6 +34,45 @@ from ..services.media import GoogleDriveMediaProvider, LocalMediaProvider, proce
 from ..validation import aware_utc, parse_uuid, safe_http_url
 
 bp = Blueprint("admin_ops", __name__)
+
+
+def gallery_album_data(row: GalleryAlbum) -> dict:
+    return {
+        "id": str(row.id),
+        "edition_id": str(row.edition_id) if row.edition_id else None,
+        "title": row.title,
+        "slug": row.slug,
+        "description": row.description,
+        "status": row.status,
+        "published_at": row.published_at,
+    }
+
+
+@bp.get("/admin/gallery/albums")
+@require_permission("gallery.manage")
+def gallery_albums_list():
+    rows = db.session.scalars(
+        select(GalleryAlbum).order_by(GalleryAlbum.created_at.desc()).limit(100)
+    ).all()
+    return success([gallery_album_data(row) for row in rows])
+
+
+@bp.post("/admin/gallery/albums")
+@require_permission("gallery.manage")
+def gallery_album_create():
+    body = body_json()
+    title = str(body.get("title", "")).strip()
+    slug = normalized_slug(str(body.get("slug") or title))
+    description = str(body.get("description", "")).strip() or None
+    if not 2 <= len(title) <= 180 or not slug:
+        return failure("validation_error", "Informe um título válido para o álbum.", status=422)
+    if db.session.scalar(select(GalleryAlbum.id).where(GalleryAlbum.slug == slug)):
+        return failure("conflict", "Já existe um álbum com este slug.", status=409)
+    row = GalleryAlbum(title=title, slug=slug, description=description, status="draft")
+    db.session.add(row)
+    audit("gallery.album_created", "gallery_album", "Álbum da galeria criado", str(row.id))
+    db.session.commit()
+    return success(gallery_album_data(row), status=201)
 
 
 def body_json() -> dict:
