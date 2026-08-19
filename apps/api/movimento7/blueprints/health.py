@@ -81,5 +81,29 @@ def readiness():
             else "Lances monetários desativados"
         ),
     })
+    media_ready = current_app.config["MEDIA_PROVIDER"] == "local" or all(
+        current_app.config[name]
+        for name in (
+            "MEDIA_TOKEN_ENCRYPTION_KEY",
+            "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET",
+            "GOOGLE_DRIVE_PRODUCT_FOLDER_ID",
+            "GOOGLE_DRIVE_GALLERY_FOLDER_ID",
+        )
+    )
+    checks.append({
+        "key": "media",
+        "status": "pass" if media_ready else "block",
+        "label": "Armazenamento de mídia configurado"
+        if media_ready
+        else "Armazenamento de mídia incompleto",
+    })
+    checks.append({
+        "key": "observability",
+        "status": "pass" if current_app.config["ERROR_REPORTING_DSN"] else "warn",
+        "label": "Relato de erros configurado"
+        if current_app.config["ERROR_REPORTING_DSN"]
+        else "Relato de erros ainda não configurado",
+    })
     blocking = any(check["status"] == "block" for check in checks)
     return success({"status": "blocked" if blocking else "review", "checks": checks})

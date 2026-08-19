@@ -37,6 +37,8 @@ services:
         value: 0.1.0
       - key: DEPLOYED_AT
         sync: false
+      - key: GIT_COMMIT
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: PUBLIC_BASE_URL
@@ -93,6 +95,8 @@ services:
         sync: false
       - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
         sync: false
+      - key: ERROR_REPORTING_DSN
+        sync: false
   - type: cron
     name: movimento7-gallery-reconcile
     runtime: python
@@ -128,4 +132,6 @@ services:
       - key: GOOGLE_DRIVE_PRODUCT_FOLDER_ID
         sync: false
       - key: GOOGLE_DRIVE_GALLERY_FOLDER_ID
+        sync: false
+      - key: ERROR_REPORTING_DSN
         sync: false

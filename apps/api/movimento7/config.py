@@ -60,6 +60,7 @@ class Config:
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Movimento 7").strip()
     EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", "").strip().lower()
     EMAIL_CONTACT_RECIPIENT = os.getenv("EMAIL_CONTACT_RECIPIENT", "").strip().lower()
+    ERROR_REPORTING_DSN = os.getenv("ERROR_REPORTING_DSN", "").strip()
     SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
@@ -80,6 +81,22 @@ class Config:
                 missing.append(name)
         if not cls.SQLALCHEMY_DATABASE_URI.startswith("postgresql"):
             missing.append("DATABASE_URL_POSTGRESQL")
+        if cls.MEDIA_PROVIDER not in {"local", "google_drive"}:
+            missing.append("MEDIA_PROVIDER_VALID")
+        if cls.MEDIA_PROVIDER == "google_drive":
+            for name in (
+                "MEDIA_TOKEN_ENCRYPTION_KEY",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "GOOGLE_DRIVE_PRODUCT_FOLDER_ID",
+                "GOOGLE_DRIVE_GALLERY_FOLDER_ID",
+            ):
+                if not os.getenv(name, "").strip():
+                    missing.append(name)
+        if cls.EMAIL_DELIVERY_MODE == "live":
+            for name in ("SMTP_USERNAME", "SMTP_PASSWORD", "EMAIL_FROM_ADDRESS"):
+                if not os.getenv(name, "").strip():
+                    missing.append(name)
         if missing:
             raise RuntimeError("Configuração de produção incompleta: " + ", ".join(missing))
 

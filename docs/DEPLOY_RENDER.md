@@ -6,6 +6,8 @@ O Blueprint `render.yaml` cria a API, um Cron Job de reconciliação da galeria 
 
 Antes de sincronizar, configure os valores `sync: false`: `INITIAL_ADMIN_PASSWORD` (12+ caracteres), `DEPLOYED_AT`, `GIT_COMMIT`, credenciais Google, chave Fernet de mídia e `GOOGLE_DRIVE_GALLERY_FOLDER_ID`. O Cron Job roda a cada seis horas em UTC e usa a mesma base PostgreSQL. Não sincronize o Blueprint sem autorização do responsável pelo Render.
 
+O checklist completo está em [`docs/PRODUCAO_CHECKLIST.md`](PRODUCAO_CHECKLIST.md). Ele deve ser revisado antes de qualquer promoção para produção.
+
 ## Reconciliação da galeria
 
 O serviço `movimento7-gallery-reconcile` executa:
