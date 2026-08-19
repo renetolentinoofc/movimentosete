@@ -1,20 +1,173 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 from flask import Blueprint, current_app, g, request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from ..extensions import db
 from ..http import failure, success
-from ..models import AdminSession, AdminUser, LoginAttempt
-from ..security import audit, client_fingerprint, issue_token, permission_set, sha256
+from ..models import AdminPasswordReset, AdminSession, AdminUser, LoginAttempt
+from ..security import (
+    audit,
+    client_fingerprint,
+    issue_token,
+    permission_set,
+    rate_limited,
+    sha256,
+)
+from ..services.communications import dispatch_email
+from ..services.email_delivery import valid_email
+from ..services.email_templates import admin_password_reset
+from ..validation import aware_utc
 
 bp = Blueprint("auth", __name__)
 
 
 def subject_hash(email: str) -> str:
     return hashlib.sha256(f"{email}:{client_fingerprint()}".encode()).hexdigest()
+
+
+@bp.post("/admin/auth/password-reset/request")
+def request_password_reset():
+    if rate_limited("admin-password-reset-request", 5, 3600):
+        db.session.rollback()
+        return failure(
+            "rate_limited", "Muitas solicitações. Tente novamente mais tarde.", status=429
+        )
+
+    body = request.get_json(silent=True) or {}
+    email = str(body.get("email", "")).strip().lower()
+    generic_response = {
+        "accepted": True,
+        "message": "Se a conta existir, enviaremos as instruções de recuperação.",
+    }
+    if not valid_email(email):
+        db.session.commit()
+        return success(generic_response, status=202)
+
+    user = db.session.scalar(select(AdminUser).where(AdminUser.email == email))
+    if not user or not user.active or user.deleted_at:
+        db.session.commit()
+        return success(generic_response, status=202)
+
+    now = datetime.now(UTC)
+    previous = db.session.scalars(
+        select(AdminPasswordReset).where(
+            AdminPasswordReset.user_id == user.id,
+            AdminPasswordReset.used_at.is_(None),
+        )
+    ).all()
+    for item in previous:
+        item.used_at = now
+
+    raw_token = issue_token()
+    expires_minutes = int(current_app.config["PASSWORD_RESET_MINUTES"])
+    reset = AdminPasswordReset(
+        user_id=user.id,
+        token_hash=sha256(raw_token),
+        expires_at=now + timedelta(minutes=expires_minutes),
+        requested_at=now,
+        ip_hash=client_fingerprint(),
+    )
+    db.session.add(reset)
+    db.session.flush()
+    reset_url = (
+        f"{current_app.config['PUBLIC_BASE_URL']}/painel/redefinir-senha?"
+        f"{urlencode({'token': raw_token})}"
+    )
+    dispatch_email(
+        recipient=user.email,
+        template=admin_password_reset(
+            name=user.name,
+            reset_url=reset_url,
+            expires_minutes=expires_minutes,
+        ),
+        idempotency_key=f"password-reset:{reset.id}",
+    )
+    audit(
+        "auth.password_reset_requested",
+        "admin_user",
+        "Recuperação de senha administrativa solicitada",
+        str(user.id),
+    )
+    db.session.commit()
+    return success(generic_response, status=202)
+
+
+@bp.post("/admin/auth/password-reset/confirm")
+def confirm_password_reset():
+    if rate_limited("admin-password-reset-confirm", 10, 3600):
+        db.session.rollback()
+        return failure(
+            "rate_limited", "Muitas tentativas. Solicite um novo link.", status=429
+        )
+
+    body = request.get_json(silent=True) or {}
+    raw_token = str(body.get("token", "")).strip()
+    new_password = str(body.get("new_password", ""))
+    confirmation = str(body.get("password_confirmation", ""))
+    reset = (
+        db.session.scalar(
+            select(AdminPasswordReset).where(AdminPasswordReset.token_hash == sha256(raw_token))
+        )
+        if raw_token
+        else None
+    )
+    now = datetime.now(UTC)
+    if (
+        not reset
+        or reset.used_at
+        or aware_utc(reset.expires_at) <= now
+        or not reset.user.active
+        or reset.user.deleted_at
+    ):
+        db.session.commit()
+        return failure(
+            "reset_token_invalid",
+            "Este link é inválido ou expirou. Solicite uma nova recuperação.",
+            status=422,
+        )
+    fields: dict[str, list[str]] = {}
+    if len(new_password) < 12:
+        fields["new_password"] = ["A senha precisa ter 12 ou mais caracteres."]
+    elif check_password_hash(reset.user.password_hash, new_password):
+        fields["new_password"] = ["Escolha uma senha diferente da atual."]
+    if confirmation != new_password:
+        fields["password_confirmation"] = ["As senhas não conferem."]
+    if fields:
+        db.session.commit()
+        return failure(
+            "weak_password", "Revise a nova senha.", status=422, fields=fields
+        )
+
+    reset.user.password_hash = generate_password_hash(new_password)
+    reset.user.must_change_password = False
+    reset.user.session_version += 1
+    unused_tokens = db.session.scalars(
+        select(AdminPasswordReset).where(
+            AdminPasswordReset.user_id == reset.user_id,
+            AdminPasswordReset.used_at.is_(None),
+        )
+    ).all()
+    for item in unused_tokens:
+        item.used_at = now
+    db.session.execute(
+        update(AdminSession)
+        .where(AdminSession.user_id == reset.user_id, AdminSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    audit(
+        "auth.password_reset_completed",
+        "admin_user",
+        "Senha administrativa redefinida por link de uso único",
+        str(reset.user_id),
+    )
+    db.session.commit()
+    response, status = success({"changed": True, "reauthentication_required": True})
+    response.delete_cookie("m7_session", path="/")
+    return response, status
 
 
 @bp.post("/admin/auth/login")

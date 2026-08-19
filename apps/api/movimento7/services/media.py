@@ -1,8 +1,11 @@
 import hashlib
+import io
 import secrets
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 
 @dataclass(frozen=True)
@@ -12,6 +15,41 @@ class StoredMedia:
     mime_type: str
     size_bytes: int
     sha256: str
+
+
+@dataclass(frozen=True)
+class ProcessedImage:
+    content: bytes
+    mime_type: str
+    suffix: str
+    width: int
+    height: int
+
+
+def process_portfolio_image(content: bytes) -> ProcessedImage:
+    """Valida, orienta e reduz uma imagem de portfólio para WebP."""
+    try:
+        with Image.open(io.BytesIO(content)) as source:
+            if source.width * source.height > 40_000_000:
+                raise ValueError("Imagem com dimensões excessivas")
+            source.seek(0)
+            image = ImageOps.exif_transpose(source)
+            has_alpha = image.mode in {"RGBA", "LA"} or (
+                image.mode == "P" and "transparency" in image.info
+            )
+            image = image.convert("RGBA" if has_alpha else "RGB")
+            image.thumbnail((1920, 1920), Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            image.save(output, format="WEBP", quality=85, method=6)
+            return ProcessedImage(
+                content=output.getvalue(),
+                mime_type="image/webp",
+                suffix=".webp",
+                width=image.width,
+                height=image.height,
+            )
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as error:
+        raise ValueError("Arquivo de imagem inválido") from error
 
 
 class MediaProvider(ABC):

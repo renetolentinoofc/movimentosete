@@ -55,6 +55,22 @@ paths:
     get:
       tags: [public]
       operationId: listProfiles
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 80 }
+        - name: city
+          in: query
+          schema: { type: string, maxLength: 120 }
+        - name: category
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
       responses:
         '200': { $ref: '#/components/responses/Success' }
   /profiles/{slug}:
@@ -64,6 +80,23 @@ paths:
       parameters: [{ $ref: '#/components/parameters/Slug' }]
       responses:
         '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /profile-assets/{id}/file:
+    get:
+      tags: [public]
+      operationId: getPublicProfileAssetFile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Mídia ativa de um perfil publicado
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
         '404': { $ref: '#/components/responses/Error' }
   /gallery:
     get:
@@ -227,6 +260,43 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
+  /admin/auth/password-reset/request:
+    post:
+      tags: [admin-auth]
+      operationId: requestAdminPasswordReset
+      summary: Solicita recuperação sem revelar se a conta existe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 180 }
+      responses:
+        '202': { $ref: '#/components/responses/Success' }
+        '429': { $ref: '#/components/responses/Error' }
+  /admin/auth/password-reset/confirm:
+    post:
+      tags: [admin-auth]
+      operationId: confirmAdminPasswordReset
+      summary: Redefine a senha com token de uso único
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password, password_confirmation]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+                new_password: { type: string, minLength: 12, maxLength: 256 }
+                password_confirmation: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '422': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /admin/dashboard:
     get:
       tags: [admin]
@@ -234,12 +304,92 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '403': { $ref: '#/components/responses/Error' }
+  /admin/editions:
+    get:
+      tags: [admin]
+      operationId: listAdminEditions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [admin]
+      operationId: createAdminEdition
+      parameters: [{ $ref: '#/components/parameters/CsrfToken' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminEditionInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/editions/{id}:
+    patch:
+      tags: [admin]
+      operationId: updateAdminEdition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminEditionInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/editions/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminEditionStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, published, closed, archived] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
   /admin/registrations:
     get:
       tags: [admin]
       operationId: listAdminRegistrations
       responses:
         '200': { $ref: '#/components/responses/Success' }
+  /admin/registrations/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminRegistration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /admin/registrations/{id}/status:
     patch:
       tags: [admin]
@@ -253,6 +403,288 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '403': { $ref: '#/components/responses/Error' }
+  /admin/registrations/{id}/triage:
+    patch:
+      tags: [admin]
+      operationId: updateRegistrationTriage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/registrations/{id}/notes:
+    post:
+      tags: [admin]
+      operationId: createRegistrationNote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/registrations/{id}/profile:
+    post:
+      tags: [admin]
+      operationId: createProfileFromRegistration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/registration-files/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminRegistrationFile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Arquivo enviado na inscrição
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/profiles:
+    get:
+      tags: [admin]
+      operationId: listAdminProfiles
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [draft, published, archived] }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/profiles/{id}:
+    get:
+      tags: [admin]
+      operationId: getAdminProfile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [admin]
+      operationId: updateAdminProfile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminProfileInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/profiles/{id}/status:
+    patch:
+      tags: [admin]
+      operationId: updateAdminProfileStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [draft, published, archived] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/profiles/{id}/assets:
+    post:
+      tags: [admin]
+      operationId: createAdminProfileAsset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, alt_text]
+              properties:
+                file: { type: string, format: binary }
+                alt_text: { type: string, minLength: 3, maxLength: 180 }
+                credit: { type: string, maxLength: 180 }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/profiles/{id}/assets/order:
+    patch:
+      tags: [admin]
+      operationId: reorderAdminProfileAssets
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [asset_ids]
+              properties:
+                asset_ids:
+                  type: array
+                  maxItems: 30
+                  items: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+  /admin/profile-assets/{id}:
+    patch:
+      tags: [admin]
+      operationId: updateAdminProfileAsset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminProfileAssetInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [admin]
+      operationId: deleteAdminProfileAsset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/profile-assets/{id}/cover:
+    post:
+      tags: [admin]
+      operationId: setAdminProfileAssetCover
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/CsrfToken' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/profile-assets/{id}/file:
+    get:
+      tags: [admin]
+      operationId: getAdminProfileAssetFile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Mídia do portfólio protegida pela sessão administrativa
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/communications:
+    get:
+      tags: [admin]
+      operationId: getAdminCommunications
+      summary: Consulta configuração segura e histórico recente de comunicação
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/communications/test:
+    post:
+      tags: [admin]
+      operationId: testAdminEmailConfiguration
+      summary: Executa um envio controlado para validar o SMTP
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminEmailTestInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
 components:
   parameters:
     Slug:
@@ -293,10 +725,11 @@ components:
             items: { type: string }
     RegistrationInput:
       type: object
-      required: [full_name, phone, city, category, presentation, privacy_accepted, privacy_version]
+      required: [full_name, email, phone, city, category, presentation, privacy_accepted, privacy_version]
       properties:
         full_name: { type: string, maxLength: 140 }
         professional_name: { type: string, maxLength: 140 }
+        email: { type: string, format: email, maxLength: 180 }
         phone: { type: string }
         instagram: { type: string }
         city: { type: string, maxLength: 120 }
@@ -305,7 +738,7 @@ components:
         portfolio_url: { type: string, format: uri }
         privacy_accepted: { type: boolean, const: true }
         privacy_version: { type: string }
-        website: { type: string, description: Honeypot; deve permanecer vazio. }
+        fax_number_for_bots: { type: string, description: Honeypot; deve permanecer vazio. }
     ContactInput:
       type: object
       required: [name, email, subject, message, privacy_accepted, privacy_version]
@@ -317,6 +750,7 @@ components:
         message: { type: string }
         privacy_accepted: { type: boolean, const: true }
         privacy_version: { type: string }
+        fax_number_for_bots: { type: string, description: Honeypot; deve permanecer vazio. }
     CartItemInput:
       type: object
       required: [cart_token, variant_id, quantity]
@@ -324,6 +758,47 @@ components:
         cart_token: { type: string }
         variant_id: { type: string, format: uuid }
         quantity: { type: integer, minimum: 0, maximum: 10 }
+    AdminProfileInput:
+      type: object
+      properties:
+        display_name: { type: string, minLength: 2, maxLength: 140 }
+        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 180 }
+        bio: { type: string, maxLength: 5000 }
+        city: { type: [string, 'null'], maxLength: 120 }
+        instagram: { type: [string, 'null'], maxLength: 30 }
+        featured: { type: boolean }
+        category_ids:
+          type: array
+          items: { type: string, format: uuid }
+    AdminProfileAssetInput:
+      type: object
+      properties:
+        alt_text: { type: string, maxLength: 180 }
+        credit: { type: [string, 'null'], maxLength: 180 }
+        display_order: { type: integer, minimum: 0 }
+        active: { type: boolean }
+    AdminEmailTestInput:
+      type: object
+      required: [idempotency_key]
+      properties:
+        recipient: { type: string, format: email, maxLength: 180 }
+        idempotency_key: { type: string, minLength: 8, maxLength: 100 }
+    AdminEditionInput:
+      type: object
+      required: [name, slug, starts_at, ends_at, registration_opens_at, registration_closes_at]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 140 }
+        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 160 }
+        description: { type: [string, 'null'], maxLength: 5000 }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        registration_opens_at: { type: [string, 'null'], format: date-time }
+        registration_closes_at: { type: [string, 'null'], format: date-time }
+        location: { type: [string, 'null'], maxLength: 180 }
+        address: { type: [string, 'null'], maxLength: 300 }
+        map_url: { type: [string, 'null'], format: uri }
+        capacity: { type: [integer, 'null'], minimum: 1, maximum: 100000 }
+        retention_days: { type: integer, minimum: 30, maximum: 3650 }
   responses:
     Success:
       description: Resposta bem-sucedida

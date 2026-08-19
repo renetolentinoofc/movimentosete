@@ -89,6 +89,19 @@ class LoginAttempt(UUIDPrimaryKeyMixin, db.Model):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AdminPasswordReset(UUIDPrimaryKeyMixin, db.Model):
+    __tablename__ = "admin_password_resets"
+    __table_args__ = (Index("ix_admin_password_resets_user_expires", "user_id", "expires_at"),)
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ip_hash: Mapped[str | None] = mapped_column(String(64))
+    user: Mapped[AdminUser] = relationship()
+
+
 class AuditLog(UUIDPrimaryKeyMixin, db.Model):
     __tablename__ = "audit_logs"
     __table_args__ = (

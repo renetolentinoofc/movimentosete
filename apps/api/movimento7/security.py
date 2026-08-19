@@ -98,7 +98,17 @@ def require_permission(permission: str) -> Callable[[F], F]:
 
 
 def verify_csrf() -> tuple[Any, int] | None:
-    if request.method in {"GET", "HEAD", "OPTIONS"} or not g.current_user:
+    public_admin_mutations = {
+        "auth.login",
+        "auth.request_password_reset",
+        "auth.confirm_password_reset",
+    }
+    if (
+        request.method in {"GET", "HEAD", "OPTIONS"}
+        or not g.current_user
+        or not request.path.startswith("/api/v1/admin/")
+        or request.endpoint in public_admin_mutations
+    ):
         return None
     supplied = request.headers.get("X-CSRF-Token", "")
     expected_hash = g.admin_session.csrf_token_hash if g.admin_session else None

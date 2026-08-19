@@ -49,9 +49,24 @@ class Config:
     GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
     MEDIA_TOKEN_ENCRYPTION_KEY = os.getenv("MEDIA_TOKEN_ENCRYPTION_KEY", "")
     ORDER_RESERVATION_MINUTES = int(os.getenv("ORDER_RESERVATION_MINUTES", "30"))
+    PASSWORD_RESET_MINUTES = int(os.getenv("PASSWORD_RESET_MINUTES", "30"))
+    EMAIL_DELIVERY_MODE = os.getenv("EMAIL_DELIVERY_MODE", "log").strip().lower()
+    EMAIL_SANDBOX_RECIPIENT = os.getenv("EMAIL_SANDBOX_RECIPIENT", "").strip().lower()
+    EMAIL_FROM_ADDRESS = os.getenv("EMAIL_FROM_ADDRESS", "").strip().lower()
+    EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Movimento 7").strip()
+    EMAIL_REPLY_TO = os.getenv("EMAIL_REPLY_TO", "").strip().lower()
+    EMAIL_CONTACT_RECIPIENT = os.getenv("EMAIL_CONTACT_RECIPIENT", "").strip().lower()
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+    # O Google exibe senhas de app em quatro grupos; os espaços são apenas visuais.
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").replace(" ", "")
+    SMTP_USE_TLS = env_bool("SMTP_USE_TLS", True)
 
     @classmethod
     def validate(cls) -> None:
+        if cls.EMAIL_DELIVERY_MODE not in {"log", "sandbox", "live"}:
+            raise RuntimeError("EMAIL_DELIVERY_MODE deve ser log, sandbox ou live")
         if cls.APP_ENV != "production":
             return
         missing: list[str] = []

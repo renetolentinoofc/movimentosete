@@ -49,6 +49,30 @@ services:
         value: "false"
       - key: PAYMENT_PROVIDER
         value: manual
+      - key: EMAIL_DELIVERY_MODE
+        value: log
+      - key: EMAIL_SANDBOX_RECIPIENT
+        sync: false
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: Movimento 7
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: EMAIL_CONTACT_RECIPIENT
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: PASSWORD_RESET_MINUTES
+        value: "30"
       - key: MEDIA_PROVIDER
         value: local
       - key: INITIAL_ADMIN_EMAIL

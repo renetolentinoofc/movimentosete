@@ -2,6 +2,7 @@
 
 from .auctions import Artwork, ArtworkMedia, AuctionLot, AuctionLotStatusHistory, Bid, Bidder
 from .auth import (
+    AdminPasswordReset,
     AdminSession,
     AdminUser,
     AuditLog,

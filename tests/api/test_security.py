@@ -60,6 +60,34 @@ def test_admin_mutation_rejects_missing_csrf(app, client):
     assert response.json["error"]["code"] == "csrf_invalid"
 
 
+def test_authenticated_admin_can_submit_public_forms_and_request_reset(app, client):
+    create_admin(app)
+    login = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": "admin@example.test", "password": "senha-segura-teste"},
+    )
+    assert login.status_code == 200
+
+    contact = client.post(
+        "/api/v1/contact",
+        json={
+            "name": "Admin Teste",
+            "email": "admin@example.test",
+            "subject": "Teste",
+            "message": "Mensagem pública enviada durante uma sessão administrativa.",
+            "privacy_accepted": True,
+            "privacy_version": "test-v1",
+        },
+    )
+    reset = client.post(
+        "/api/v1/admin/auth/password-reset/request",
+        json={"email": "admin@example.test"},
+    )
+
+    assert contact.status_code == 201
+    assert reset.status_code == 202
+
+
 def test_first_access_changes_password_and_revokes_session(app, client):
     create_admin(app, must_change_password=True)
     login = client.post(

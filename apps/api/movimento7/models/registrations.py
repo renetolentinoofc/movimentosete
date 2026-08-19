@@ -64,6 +64,7 @@ class Registration(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     )
     full_name: Mapped[str] = mapped_column(String(140), nullable=False)
     professional_name: Mapped[str | None] = mapped_column(String(140))
+    email: Mapped[str | None] = mapped_column(String(180), index=True)
     phone_e164: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     instagram_handle: Mapped[str | None] = mapped_column(String(100))
     city: Mapped[str] = mapped_column(String(120), nullable=False)
