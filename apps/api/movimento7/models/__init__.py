@@ -1,7 +1,13 @@
 # ruff: noqa: F401
 
 from .auctions import (
-    Artwork, ArtworkMedia, AuctionAuthorization, AuctionLot, AuctionLotStatusHistory, Bid, Bidder,
+    Artwork,
+    ArtworkMedia,
+    AuctionAuthorization,
+    AuctionLot,
+    AuctionLotStatusHistory,
+    Bid,
+    Bidder,
 )
 from .auth import (
     AdminPasswordReset,
