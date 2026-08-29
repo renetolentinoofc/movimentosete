@@ -10,6 +10,7 @@ from ..extensions import db
 from ..models import CommunicationLog
 from .email_delivery import deliver_email
 from .email_templates import EmailTemplate
+from .observability import capture_exception
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ def dispatch_email(
             )
         status = delivery.status
     except Exception as error:
+        capture_exception(error, context={"component": "email_delivery", "template": template.key})
         current_app.logger.warning(
             "Template email delivery failed: %s (%s)",
             template.key,

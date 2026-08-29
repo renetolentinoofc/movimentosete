@@ -7,6 +7,7 @@ import hmac
 import io
 import os
 from functools import wraps
+from urllib.parse import unquote, urlsplit
 
 from flask import (
     Blueprint,
@@ -41,6 +42,23 @@ from .google_drive import (
 from .models import GalleryImage, Registration, Sponsor
 
 bp = Blueprint("main", __name__)
+
+
+def _safe_next_path(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.strip()
+    for _ in range(3):
+        decoded = unquote(candidate)
+        if decoded == candidate:
+            break
+        candidate = decoded
+    if not candidate.startswith("/") or candidate.startswith("//") or "\\" in candidate:
+        return None
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return None
+    return candidate
 
 
 def admin_required(view):
@@ -120,7 +138,8 @@ def admin_login():
         if hmac.compare_digest(form.password.data, expected):
             session.clear()
             session["is_admin"] = True
-            return redirect(request.args.get("next") or url_for("main.admin_dashboard"))
+            next_path = _safe_next_path(request.args.get("next"))
+            return redirect(next_path or url_for("main.admin_dashboard"))
         flash("Senha incorreta.", "danger")
     return render_template("admin_login.html", form=form)
 

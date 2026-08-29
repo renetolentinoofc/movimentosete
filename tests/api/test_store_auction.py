@@ -162,3 +162,14 @@ def test_bidding_feature_flag_is_off(app, client):
     )
     assert response.status_code == 409
     assert response.json["error"]["code"] == "bidding_disabled"
+
+
+def test_bidding_requires_payment_guarantee_before_activation(app, client):
+    app.config.update(AUCTION_BIDDING_ENABLED=True, AUCTION_PAYMENT_GUARANTEE_ENABLED=False)
+    response = client.post(
+        "/api/v1/auction-lots/00000000-0000-0000-0000-000000000000/bids",
+        headers={"Idempotency-Key": "bid-test-0002"},
+        json={"amount_cents": 11000},
+    )
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "bidding_payment_not_ready"

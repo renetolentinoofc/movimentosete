@@ -24,13 +24,15 @@ from ..models import (
 )
 from ..security import rate_limited, sha256
 from ..services.email_templates import order_created
+from ..services.media import product_media_url
 from ..services.order_notifications import (
     format_order_datetime,
     format_order_total,
     notify_order,
 )
+from ..services.payments import PaymentRequest, get_payment_provider
 from ..services.shipping import quote_shipping
-from ..validation import normalize_phone, parse_uuid
+from ..validation import aware_utc, normalize_phone, parse_uuid
 
 bp = Blueprint("store", __name__)
 INTERNAL_ONLY_PRODUCT_SLUGS = frozenset({"camiseta-movimento7"})
@@ -63,7 +65,12 @@ def product_json(product: Product, detail: bool = False) -> dict:
         "featured": product.featured,
         "available": any(v.stock_quantity - v.reserved_quantity > 0 for v in variants),
         "media": [
-            {"url": m.storage_key, "alt": m.alt_text, "width": m.width, "height": m.height}
+            {
+                "url": product_media_url(m.provider, m.storage_key, str(m.id)),
+                "alt": m.alt_text,
+                "width": m.width,
+                "height": m.height,
+            }
             for m in media
         ],
     }
@@ -156,8 +163,10 @@ def view_cart():
     )
     data = []
     for item in items:
-        variant = variants[item.variant_id]
-        product_row = products[variant.product_id]
+        variant = variants.get(item.variant_id)
+        product_row = products.get(variant.product_id) if variant else None
+        if not variant or not product_row or product_row.status != "published":
+            return failure("variant_unavailable", "Um item não está mais disponível.", status=409)
         price = (
             variant.price_override_cents
             if variant.price_override_cents is not None
@@ -200,6 +209,11 @@ def put_cart_item():
     body = request.get_json(silent=True) or {}
     cart = get_cart(body)
     if not cart:
+        return failure("cart_invalid", "Carrinho inexistente ou expirado.", status=404)
+    # Serializa alterações no mesmo carrinho; junto da constraint única, evita
+    # duas linhas para a mesma variação em requisições concorrentes.
+    cart = db.session.scalar(select(Cart).where(Cart.id == cart.id).with_for_update())
+    if not cart or cart.status != "active" or aware_utc(cart.expires_at) <= datetime.now(UTC):
         return failure("cart_invalid", "Carrinho inexistente ou expirado.", status=404)
     try:
         quantity = int(body.get("quantity", 0))
@@ -271,6 +285,15 @@ def shipping_quote():
             subtotal_cents=subtotal,
             postal_code=str((body.get("address") or {}).get("postal_code", "")),
             state=str((body.get("address") or {}).get("state", "")),
+            fulfillment_method=str(body.get("fulfillment_method", "delivery")),
+            products=[
+                {
+                    "id": str(item.variant_id),
+                    "quantity": item.quantity,
+                    "insurance_value": subtotal / 100,
+                }
+                for item in items
+            ],
         )
     except ValueError as error:
         return failure("shipping_address_invalid", str(error), status=422)
@@ -298,6 +321,15 @@ def checkout():
         return failure(
             "idempotency_required", "Informe uma chave de idempotência válida.", status=400
         )
+    body = request.get_json(silent=True) or {}
+    request_hash = sha256(
+        json.dumps(
+            {"cart_token": body.get("cart_token"), "payload": body},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+    )
     key_hash = sha256(idempotency)
     existing = db.session.scalar(
         select(IdempotencyKey).where(
@@ -305,10 +337,15 @@ def checkout():
         )
     )
     if existing:
+        if existing.request_hash != request_hash:
+            return failure(
+                "idempotency_conflict",
+                "A chave de idempotência já foi usada com outro pedido.",
+                status=409,
+            )
         payload = json.loads(existing.response_json or "{}")
         payload["replayed"] = True
         return success(payload, status=existing.response_status or 200)
-    body = request.get_json(silent=True) or {}
     cart = get_cart(body)
     if not cart:
         return failure("cart_invalid", "Carrinho inexistente ou expirado.", status=404)
@@ -384,10 +421,20 @@ def checkout():
             else product_row.price_cents
         ) * item.quantity
     try:
+        fulfillment_method = str(body.get("fulfillment_method", "delivery")).strip().lower()
         shipping = quote_shipping(
             subtotal_cents=subtotal,
             postal_code=str(address_data["postal_code"]),
             state=str(address_data["state"]),
+            fulfillment_method=fulfillment_method,
+            products=[
+                {
+                    "id": str(item.variant_id),
+                    "quantity": item.quantity,
+                    "insurance_value": subtotal / 100,
+                }
+                for item in items
+            ],
         )
     except ValueError as error:
         return failure("shipping_address_invalid", str(error), status=422)
@@ -417,6 +464,7 @@ def checkout():
         access_token_hash=sha256(access_token),
         customer_id=customer.id,
         address_id=address.id,
+        fulfillment_method=fulfillment_method,
         subtotal_cents=subtotal,
         shipping_cents=shipping.shipping_cents,
         total_cents=subtotal + shipping.shipping_cents,
@@ -461,7 +509,17 @@ def checkout():
         Payment(
             order_id=order.id,
             provider=current_app.config["PAYMENT_PROVIDER"],
-            status="pending_manual",
+            status=(payment_result := get_payment_provider().create(
+                PaymentRequest(
+                    order_code=order.public_code,
+                    amount_cents=order.total_cents,
+                    currency=order.currency,
+                    idempotency_key=idempotency,
+                    customer_email=customer.email,
+                    notification_url=f"{current_app.config['PUBLIC_BASE_URL']}/api/v1/payments/webhook/{current_app.config['PAYMENT_PROVIDER']}",
+                )
+            )).status,
+            provider_reference=payment_result.provider_reference,
             amount_cents=order.total_cents,
             idempotency_key=idempotency,
         )
@@ -486,7 +544,7 @@ def checkout():
         IdempotencyKey(
             scope="checkout",
             key_hash=key_hash,
-            request_hash=sha256(str(cart.id)),
+            request_hash=request_hash,
             response_status=201,
             response_json=json.dumps(replay_payload),
             expires_at=datetime.now(UTC) + timedelta(days=1),
@@ -512,6 +570,8 @@ def checkout():
             "status": order.status,
             "payment_status": order.payment_status,
             "payment_provider": current_app.config["PAYMENT_PROVIDER"],
+            "payment_instructions": payment_result.instructions,
+            "payment_checkout_url": payment_result.checkout_url,
             "total_cents": order.total_cents,
             "shipping_cents": order.shipping_cents,
             "shipping_label": shipping.label,

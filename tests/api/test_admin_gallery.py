@@ -1,10 +1,7 @@
+import hashlib
 import io
-from uuid import UUID
 from urllib.parse import urlparse
-
-from PIL import Image
-from sqlalchemy import select
-from werkzeug.security import generate_password_hash
+from uuid import UUID
 
 from movimento7.extensions import db
 from movimento7.models import (
@@ -15,6 +12,10 @@ from movimento7.models import (
     Permission,
     Role,
 )
+from movimento7.services.media import reconcile_gallery_media
+from PIL import Image
+from sqlalchemy import select
+from werkzeug.security import generate_password_hash
 
 
 def create_gallery_context(app):
@@ -274,3 +275,43 @@ def test_gallery_reconciliation_creates_task_for_missing_local_file(app, client,
         )
         assert media.reconciliation_status == "missing"
         assert task.action == "inspect"
+
+
+def test_gallery_reconciliation_processes_all_rows_in_batches(app, tmp_path, monkeypatch):
+    album_id = UUID(create_gallery_context(app))
+    monkeypatch.chdir(tmp_path)
+    gallery_root = tmp_path / "uploads" / "gallery"
+    gallery_root.mkdir(parents=True)
+    with app.app_context():
+        rows = []
+        for index in range(3):
+            content = f"media-{index}".encode()
+            storage_key = f"media-{index}.webp"
+            (gallery_root / storage_key).write_bytes(content)
+            rows.append(GalleryMedia(
+                album_id=album_id,
+                category="Eventos",
+                provider="local",
+                storage_key=storage_key,
+                safe_name=storage_key,
+                media_type="image",
+                mime_type="image/webp",
+                size_bytes=len(content),
+                width=1,
+                height=1,
+                sha256=hashlib.sha256(content).hexdigest(),
+                title=f"Mídia {index}",
+                alt_text=f"Mídia {index}",
+                display_order=index,
+                status="published",
+                reconciliation_status="pending",
+            ))
+        db.session.add_all(rows)
+        db.session.commit()
+
+        result = reconcile_gallery_media(limit=1)
+
+        assert result["completed"] == 3
+        assert db.session.scalar(
+            select(GalleryMedia).where(GalleryMedia.reconciliation_status == "pending")
+        ) is None

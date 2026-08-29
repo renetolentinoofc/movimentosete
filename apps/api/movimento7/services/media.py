@@ -12,10 +12,11 @@ import requests
 from cryptography.fernet import Fernet, InvalidToken
 from flask import current_app
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from ..extensions import db
 from ..models.content import GalleryMedia, IntegrationCredential, MediaReconciliationTask
+from .observability import capture_exception
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,12 @@ def gallery_media_url(provider: str, storage_key: str, media_id: str) -> str:
     return f"{base_url}/gallery/{quote(media_id, safe='')}"
 
 
+def product_media_url(provider: str, storage_key: str, media_id: str) -> str:
+    if provider != "local":
+        return storage_key
+    return f"/api/v1/media/products/{quote(media_id, safe='')}"
+
+
 def process_portfolio_image(content: bytes) -> ProcessedImage:
     """Valida, orienta e reduz uma imagem de portfólio para WebP."""
     try:
@@ -75,6 +82,7 @@ def process_portfolio_image(content: bytes) -> ProcessedImage:
                 height=image.height,
             )
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as error:
+        capture_exception(error, context={"component": "media_image_processing"})
         raise ValueError("Arquivo de imagem inválido") from error
 
 
@@ -127,6 +135,7 @@ class GoogleDriveMediaProvider(MediaProvider):
                 Fernet(key.encode()).decrypt(credential.encrypted_payload).decode()
             )
         except (InvalidToken, ValueError, TypeError, json.JSONDecodeError) as error:
+            capture_exception(error, context={"component": "google_drive_credentials"})
             raise RuntimeError("Credencial do Google Drive inválida") from error
         response = requests.post(
             "https://oauth2.googleapis.com/token",
@@ -290,72 +299,91 @@ class GoogleDriveMediaProvider(MediaProvider):
 
 
 def reconcile_gallery_media(limit: int = 200) -> dict[str, int]:
-    rows = db.session.scalars(
-        select(GalleryMedia)
-        .where(GalleryMedia.deleted_at.is_(None))
-        .order_by(GalleryMedia.created_at)
-        .limit(max(1, min(limit, 500)))
-    ).all()
+    """Reconcile the complete catalog in bounded keyset-paginated batches."""
+    batch_size = max(1, min(limit, 5000))
     counts = Counter()
-    duplicate_hashes = {
-        digest
-        for digest, count in Counter(row.sha256 for row in rows).items()
-        if count > 1
-    }
     drive = (
         GoogleDriveMediaProvider()
-        if any(row.provider == "google_drive" for row in rows)
+        if db.session.scalar(
+            select(GalleryMedia.id).where(
+                GalleryMedia.deleted_at.is_(None), GalleryMedia.provider == "google_drive"
+            ).limit(1)
+        )
         or current_app.config["MEDIA_PROVIDER"] == "google_drive"
         else None
     )
     known_drive_ids: set[str] = set()
-    for row in rows:
-        status = "completed"
-        error = None
-        if row.sha256 in duplicate_hashes:
-            status = "duplicate"
-            error = "Mais de uma mídia ativa possui o mesmo checksum"
-        if row.provider == "local":
-            target = (gallery_media_root() / row.storage_key).resolve()
-            root = gallery_media_root()
-            if root not in target.parents or not target.is_file():
-                status, error = "missing", "Arquivo local não encontrado"
-            elif hashlib.sha256(target.read_bytes()).hexdigest() != row.sha256:
-                status, error = "mismatch", "Checksum do arquivo local não corresponde ao catálogo"
-        elif row.provider == "google_drive" and drive:
-            status, row.provider_id, error = drive.inspect(row.storage_key, row.provider_id)
-            if row.provider_id:
-                known_drive_ids.add(row.provider_id)
-        elif row.provider not in {"local", "google_drive"}:
-            status, error = "error", "Provedor de mídia não suportado"
-        row.reconciliation_status = status
-        counts[status] += 1
-        existing = db.session.scalar(
-            select(MediaReconciliationTask).where(
-                MediaReconciliationTask.resource_type == "gallery_media",
-                MediaReconciliationTask.resource_id == row.id,
-                MediaReconciliationTask.action == "inspect",
-                MediaReconciliationTask.status == "pending",
-            )
+    last_created_at = None
+    last_id = None
+    while True:
+        query = (
+            select(GalleryMedia, func.count(GalleryMedia.sha256).over(
+                partition_by=GalleryMedia.sha256
+            ).label("hash_count"))
+            .where(GalleryMedia.deleted_at.is_(None))
+            .order_by(GalleryMedia.created_at, GalleryMedia.id)
+            .limit(batch_size)
         )
-        if status == "completed":
-            if existing:
-                existing.status = "resolved"
-                existing.last_error = None
-        elif existing:
-            existing.attempts += 1
-            existing.last_error = error
-        else:
-            db.session.add(MediaReconciliationTask(
-                provider=row.provider,
-                resource_type="gallery_media",
-                resource_id=row.id,
-                storage_key=row.storage_key,
-                action="inspect",
-                status="pending",
-                attempts=1,
-                last_error=error,
+        if last_created_at is not None and last_id is not None:
+            query = query.where(or_(
+                GalleryMedia.created_at > last_created_at,
+                (GalleryMedia.created_at == last_created_at) & (GalleryMedia.id > last_id),
             ))
+        batch = db.session.execute(query).all()
+        if not batch:
+            break
+        for row, hash_count in batch:
+            status = "completed"
+            error = None
+            if hash_count > 1:
+                status = "duplicate"
+                error = "Mais de uma mídia ativa possui o mesmo checksum"
+            if row.provider == "local":
+                target = (gallery_media_root() / row.storage_key).resolve()
+                root = gallery_media_root()
+                if root not in target.parents or not target.is_file():
+                    status, error = "missing", "Arquivo local não encontrado"
+                elif hashlib.sha256(target.read_bytes()).hexdigest() != row.sha256:
+                    status, error = (
+                        "mismatch", "Checksum do arquivo local não corresponde ao catálogo"
+                    )
+            elif row.provider == "google_drive" and drive:
+                status, row.provider_id, error = drive.inspect(row.storage_key, row.provider_id)
+                if row.provider_id:
+                    known_drive_ids.add(row.provider_id)
+            elif row.provider not in {"local", "google_drive"}:
+                status, error = "error", "Provedor de mídia não suportado"
+            row.reconciliation_status = status
+            counts[status] += 1
+            existing = db.session.scalar(
+                select(MediaReconciliationTask).where(
+                    MediaReconciliationTask.resource_type == "gallery_media",
+                    MediaReconciliationTask.resource_id == row.id,
+                    MediaReconciliationTask.action == "inspect",
+                    MediaReconciliationTask.status == "pending",
+                )
+            )
+            if status == "completed":
+                if existing:
+                    existing.status = "resolved"
+                    existing.last_error = None
+            elif existing:
+                existing.attempts += 1
+                existing.last_error = error
+            else:
+                db.session.add(MediaReconciliationTask(
+                    provider=row.provider,
+                    resource_type="gallery_media",
+                    resource_id=row.id,
+                    storage_key=row.storage_key,
+                    action="inspect",
+                    status="pending",
+                    attempts=1,
+                    last_error=error,
+                ))
+        last_created_at = batch[-1][0].created_at
+        last_id = batch[-1][0].id
+        db.session.commit()
     if drive:
         orphan_ids = set(
             drive.list_gallery_files(current_app.config["GOOGLE_DRIVE_GALLERY_FOLDER_ID"])

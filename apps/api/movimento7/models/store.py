@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..extensions import db
@@ -80,7 +90,7 @@ class CartItem(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     __tablename__ = "cart_items"
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_cart_items_quantity_positive"),
-        Index("ix_cart_item_unique_active", "cart_id", "variant_id"),
+        UniqueConstraint("cart_id", "variant_id", name="uq_cart_item_cart_variant"),
     )
     cart_id: Mapped[UUID] = mapped_column(ForeignKey("carts.id"), nullable=False)
     variant_id: Mapped[UUID] = mapped_column(ForeignKey("product_variants.id"), nullable=False)

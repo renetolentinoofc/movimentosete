@@ -20,6 +20,7 @@ from ..models import (
     Address,
     AdminUser,
     Artwork,
+    AuctionAuthorization,
     AuctionLot,
     AuctionLotStatusHistory,
     ContentEntry,
@@ -60,7 +61,9 @@ from ..services.media import (
     process_portfolio_image,
     reconcile_gallery_media,
 )
+from ..services.observability import capture_exception
 from ..services.order_notifications import format_order_total, notify_order
+from ..services.payments import MercadoPagoError, MercadoPagoProvider
 from ..validation import aware_utc, parse_uuid, safe_http_url
 
 bp = Blueprint("admin_ops", __name__)
@@ -89,6 +92,83 @@ def auction_lots_list():
             for lot, artwork in rows
         ]
     )
+
+
+def _auction_authorization(authorization_id: str) -> AuctionAuthorization | None:
+    parsed = parse_uuid(authorization_id)
+    return db.session.scalar(
+        select(AuctionAuthorization).where(AuctionAuthorization.id == parsed).with_for_update()
+    ) if parsed else None
+
+
+@bp.post("/admin/auction-authorizations/<authorization_id>/capture")
+@require_permission("auction.manage")
+def auction_authorization_capture(authorization_id: str):
+    authorization = _auction_authorization(authorization_id)
+    if not authorization:
+        return failure("not_found", "Autorização não encontrada.", status=404)
+    if authorization.status == "captured":
+        return success(
+            {"id": str(authorization.id), "status": authorization.status, "replayed": True}
+        )
+    if authorization.status != "authorized":
+        return failure(
+            "authorization_not_available",
+            "A autorização não está disponível para captura.",
+            status=409,
+        )
+    if current_app.config["PAYMENT_PROVIDER"] != "mercadopago":
+        return failure("auction_payment_unavailable", "O leilão exige Mercado Pago.", status=503)
+    try:
+        MercadoPagoProvider().capture_auction(
+            authorization.provider_order_id, f"auction-capture-{authorization.id}"
+        )
+    except MercadoPagoError as error:
+        db.session.rollback()
+        return failure("auction_capture_failed", str(error), status=502)
+    authorization.status = "captured"
+    authorization.captured_at = datetime.now(UTC)
+    audit(
+        "auction_authorization.captured", "auction_authorization",
+        "Garantia do vencedor capturada", str(authorization.id),
+    )
+    db.session.commit()
+    return success({"id": str(authorization.id), "status": authorization.status})
+
+
+@bp.post("/admin/auction-authorizations/<authorization_id>/cancel")
+@require_permission("auction.manage")
+def auction_authorization_cancel(authorization_id: str):
+    authorization = _auction_authorization(authorization_id)
+    if not authorization:
+        return failure("not_found", "Autorização não encontrada.", status=404)
+    if authorization.status == "cancelled":
+        return success(
+            {"id": str(authorization.id), "status": authorization.status, "replayed": True}
+        )
+    if authorization.status != "authorized":
+        return failure(
+            "authorization_not_available",
+            "A autorização não está disponível para cancelamento.",
+            status=409,
+        )
+    if current_app.config["PAYMENT_PROVIDER"] != "mercadopago":
+        return failure("auction_payment_unavailable", "O leilão exige Mercado Pago.", status=503)
+    try:
+        MercadoPagoProvider().cancel_auction(
+            authorization.provider_order_id, f"auction-cancel-{authorization.id}"
+        )
+    except MercadoPagoError as error:
+        db.session.rollback()
+        return failure("auction_cancel_failed", str(error), status=502)
+    authorization.status = "cancelled"
+    authorization.cancelled_at = datetime.now(UTC)
+    audit(
+        "auction_authorization.cancelled", "auction_authorization",
+        "Garantia de participante cancelada", str(authorization.id),
+    )
+    db.session.commit()
+    return success({"id": str(authorization.id), "status": authorization.status})
 
 
 @bp.post("/admin/auction-lots")
@@ -600,6 +680,8 @@ def gallery_media_upload(album_id: str):
             status=422,
         )
     try:
+        if uploaded.mimetype not in {"image/jpeg", "image/png", "image/webp", "image/avif"}:
+            return failure("media_upload_failed", "Tipo de imagem não permitido.", status=422)
         processed = process_portfolio_image(uploaded.read())
         content_sha256 = hashlib.sha256(processed.content).hexdigest()
         if db.session.scalar(
@@ -667,6 +749,7 @@ def gallery_reconcile():
         summary = reconcile_gallery_media()
     except RuntimeError as error:
         db.session.rollback()
+        capture_exception(error, context={"component": "gallery_reconciliation"})
         return failure("reconciliation_failed", str(error), status=502)
     audit("gallery.reconciled", "gallery_media", "Reconciliação da galeria executada")
     db.session.commit()
@@ -1188,10 +1271,10 @@ def product_media_create(product_id: str):
     body = body_json()
     storage_key = str(body.get("storage_key", "")).strip()
     alt_text = str(body.get("alt_text", "")).strip()
-    if not product or not storage_key or not alt_text:
+    if not product or not storage_key or not alt_text or not safe_http_url(storage_key):
         return failure(
             "validation_error",
-            "Produto, endereço da imagem e texto alternativo são obrigatórios.",
+            "Produto, URL HTTP(S) da imagem e texto alternativo são obrigatórios.",
             status=422,
         )
     media = ProductMedia(
@@ -1221,6 +1304,8 @@ def product_media_upload(product_id: str):
             status=422,
         )
     try:
+        if uploaded.mimetype not in {"image/jpeg", "image/png", "image/webp", "image/avif"}:
+            return failure("media_upload_failed", "Tipo de imagem não permitido.", status=422)
         processed = process_portfolio_image(uploaded.read())
         provider = (
             GoogleDriveMediaProvider()

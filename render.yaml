@@ -49,10 +49,34 @@ services:
         value: "true"
       - key: AUCTION_BIDDING_ENABLED
         value: "false"
+      - key: AUCTION_PAYMENT_GUARANTEE_ENABLED
+        value: "false"
+      - key: AUCTION_TERMS_VERSION
+        value: 2026-08-draft
       - key: PAYMENT_PROVIDER
-        value: manual
+        value: mercadopago
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_API_BASE_URL
+        value: https://api.mercadopago.com
       - key: SHIPPING_METHOD
         value: manual
+      - key: SHIPPING_PROVIDER
+        value: melhor_envio
+      - key: SHIPPING_ALLOWED_STATES
+        sync: false
+      - key: SHIPPING_PICKUP_ENABLED
+        value: "false"
+      - key: SHIPPING_ORIGIN_POSTAL_CODE
+        sync: false
+      - key: MELHOR_ENVIO_ACCESS_TOKEN
+        sync: false
+      - key: MELHOR_ENVIO_API_BASE_URL
+        value: https://www.melhorenvio.com.br/api/v2/me
+      - key: MELHOR_ENVIO_USER_AGENT
+        value: Movimento 7 suporte@movimento7.com.br
       - key: SHIPPING_LABEL
         value: Entrega padrão
       - key: SHIPPING_FLAT_RATE_CENTS
@@ -62,7 +86,7 @@ services:
       - key: SHIPPING_ESTIMATED_DAYS
         value: "0"
       - key: EMAIL_DELIVERY_MODE
-        value: log
+        value: smtp
       - key: EMAIL_SANDBOX_RECIPIENT
         sync: false
       - key: EMAIL_FROM_ADDRESS
@@ -107,6 +131,8 @@ services:
         sync: false
       - key: ERROR_REPORTING_DSN
         sync: false
+      - key: ERROR_REPORTING_TRACES_SAMPLE_RATE
+        value: "0.05"
   - type: cron
     name: movimento7-gallery-reconcile
     runtime: python
@@ -145,6 +171,8 @@ services:
         sync: false
       - key: ERROR_REPORTING_DSN
         sync: false
+      - key: ERROR_REPORTING_TRACES_SAMPLE_RATE
+        value: "0.05"
   - type: cron
     name: movimento7-expire-inventory
     runtime: python

@@ -28,6 +28,16 @@ def create_app() -> Flask:
     os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
     app = Flask(__name__, instance_relative_config=True)
+    app_env = os.getenv("APP_ENV", "development").strip().lower()
+    secret_key = os.getenv("SECRET_KEY", "").strip()
+    admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
+    if app_env not in {"development", "test"} and (
+        not secret_key
+        or "change-me" in secret_key.lower()
+        or not admin_password
+        or "change-me" in admin_password.lower()
+    ):
+        raise RuntimeError("SECRET_KEY e ADMIN_PASSWORD devem ser configurados fora do desenvolvimento")
     # O Render executa a aplicação atrás de um proxy HTTPS.
     # Isso permite que o Flask reconheça corretamente o domínio e o protocolo público.
     app.wsgi_app = ProxyFix(
@@ -49,7 +59,7 @@ def create_app() -> Flask:
         database_url = f"sqlite:///{Path(app.instance_path) / 'movimento7.db'}"
 
     app.config.update(
-        SECRET_KEY=os.getenv("SECRET_KEY", "dev-change-me"),
+        SECRET_KEY=secret_key or "local-development-only-change-me",
         SQLALCHEMY_DATABASE_URI=database_url,
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SQLALCHEMY_ENGINE_OPTIONS={
@@ -59,7 +69,7 @@ def create_app() -> Flask:
             "max_overflow": 2,
             "pool_timeout": 30,
         },
-        ADMIN_PASSWORD=os.getenv("ADMIN_PASSWORD", "admin-change-me"),
+        ADMIN_PASSWORD=admin_password or "local-admin-change-me",
         # Limite inicial para uploads futuros da galeria: 8 MB.
         MAX_CONTENT_LENGTH=8 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,

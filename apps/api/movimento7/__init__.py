@@ -14,6 +14,7 @@ from .extensions import cors, db, migrate
 from .http import failure
 from .security import load_session, verify_csrf
 from .seeds import seed_all
+from .services.observability import capture_exception, init_error_reporting
 
 
 class JsonFormatter(logging.Formatter):
@@ -40,6 +41,7 @@ def create_app(config: type[Config] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config or Config)
     (config or Config).validate()
+    init_error_reporting(app)
     configure_logging(app)
     db.init_app(app)
     migrate.init_app(app, db, directory=str(Path(__file__).resolve().parents[3] / "migrations"))
@@ -94,6 +96,7 @@ def create_app(config: type[Config] | None = None) -> Flask:
 
     @app.errorhandler(Exception)
     def unexpected_error(error: Exception):
+        capture_exception(error, context={"component": "flask_request"})
         app.logger.exception("Unhandled request error", extra={"request_id": g.get("request_id")})
         db.session.rollback()
         return failure("internal_error", "Não foi possível concluir a operação.", status=500)
@@ -104,7 +107,12 @@ def create_app(config: type[Config] | None = None) -> Flask:
         """Verifica mídias da galeria e registra pendências de reconciliação."""
         from .services.media import reconcile_gallery_media
 
-        click.echo(json.dumps(reconcile_gallery_media(limit), ensure_ascii=False))
+        try:
+            result = reconcile_gallery_media(limit)
+        except Exception as error:
+            capture_exception(error, context={"component": "gallery_reconciliation"})
+            raise
+        click.echo(json.dumps(result, ensure_ascii=False))
 
     @app.cli.command("expire-inventory-reservations")
     @click.option("--limit", default=500, show_default=True, type=click.IntRange(1, 5000))
@@ -112,7 +120,12 @@ def create_app(config: type[Config] | None = None) -> Flask:
         """Libera reservas de estoque vencidas e expira pedidos não pagos."""
         from .services.inventory import expire_inventory_reservations
 
-        click.echo(json.dumps(expire_inventory_reservations(limit), ensure_ascii=False))
+        try:
+            result = expire_inventory_reservations(limit)
+        except Exception as error:
+            capture_exception(error, context={"component": "inventory_expiration"})
+            raise
+        click.echo(json.dumps(result, ensure_ascii=False))
 
     @app.cli.command("seed")
     def seed_command():

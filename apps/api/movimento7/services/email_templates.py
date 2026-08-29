@@ -79,6 +79,20 @@ def admin_password_reset(*, name: str, reset_url: str, expires_minutes: int) -> 
     )
 
 
+def privacy_verification(*, protocol: str, verify_url: str, expires_minutes: int) -> EmailTemplate:
+    return EmailTemplate(
+        key="privacy_request_verification",
+        subject=f"Confirme sua solicitação de privacidade — {protocol}",
+        text_body=(
+            "Recebemos uma solicitação relacionada aos seus dados no Movimento 7.\n\n"
+            f"Protocolo: {protocol}\n"
+            f"Confirme sua identidade em até {expires_minutes} minutos:\n{verify_url}\n\n"
+            "Se você não fez esta solicitação, ignore esta mensagem.\n\n"
+            "Equipe Movimento 7\n"
+        ),
+    )
+
+
 def contact_message_received(
     *, name: str, email: str, subject: str, message: str, protocol: str
 ) -> EmailTemplate:

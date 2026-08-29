@@ -51,6 +51,8 @@ Veja `docs/DEPLOY_RENDER.md`. O `render.yaml` declara serviços, banco, health c
 ## Feature flags e integrações
 
 - `AUCTION_BIDDING_ENABLED=false`: aguarda regras e validação jurídica;
+- `PAYMENT_PROVIDER=mercadopago`: Checkout Pro, webhook assinado, confirmação, estorno e reconciliação;
 - `PAYMENT_PROVIDER=manual`: cria pedido pendente sem simular pagamento;
 - `MEDIA_PROVIDER=local`: Drive fica desativado até OAuth e chave de criptografia estarem configurados;
 - envio automático de e-mail/WhatsApp fica desligado sem provedor e credenciais.
+- `EMAIL_DELIVERY_MODE=smtp` envia e-mails transacionais pelo SMTP configurado;

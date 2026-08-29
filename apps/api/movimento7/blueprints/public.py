@@ -1,7 +1,7 @@
 import io
 import json
 import secrets
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -22,6 +22,9 @@ from ..models import (
     ParticipationCategory,
     Partner,
     PortfolioAsset,
+    PrivacyRequest,
+    Product,
+    ProductMedia,
     Profile,
     ProfileCategory,
     Registration,
@@ -30,10 +33,14 @@ from ..models import (
     SiteSetting,
     SocialLink,
 )
-from ..security import rate_limited, sha256
+from ..security import issue_token, rate_limited, sha256
 from ..services.communications import dispatch_email
 from ..services.email_delivery import valid_email
-from ..services.email_templates import contact_message_received, registration_confirmation
+from ..services.email_templates import (
+    contact_message_received,
+    privacy_verification,
+    registration_confirmation,
+)
 from ..services.media import LocalMediaProvider, gallery_media_root, gallery_media_url
 from ..validation import aware_utc, normalize_instagram, normalize_phone, safe_http_url
 
@@ -116,6 +123,80 @@ def current_edition():
             "registrations_open": registrations_open,
         }
     )
+
+
+@bp.post("/privacy/requests")
+def create_privacy_request():
+    if rate_limited("privacy-request", 5, 3600):
+        db.session.rollback()
+        return failure(
+            "rate_limited", "Muitas solicitações. Tente novamente mais tarde.", status=429
+        )
+    body = request.get_json(silent=True) or {}
+    request_type = str(body.get("request_type", "")).strip().lower()
+    email = str(body.get("email", "")).strip().lower()
+    fields: dict[str, list[str]] = {}
+    if request_type not in {"access", "correct", "export", "delete", "portability"}:
+        fields["request_type"] = ["Tipo de solicitação inválido."]
+    if not valid_email(email):
+        fields["email"] = ["Informe um e-mail válido."]
+    if fields:
+        return failure("validation_error", "Revise os dados informados.", status=422, fields=fields)
+    raw_token = issue_token()
+    now = datetime.now(UTC)
+    expires_minutes = int(current_app.config["PASSWORD_RESET_MINUTES"])
+    row = PrivacyRequest(
+        protocol=protocol("LGPD"),
+        request_type=request_type,
+        subject_reference_hash=sha256(email),
+        requester_email=email,
+        verification_token_hash=sha256(raw_token),
+        verification_expires_at=now + timedelta(minutes=expires_minutes),
+        status="pending_verification",
+    )
+    db.session.add(row)
+    db.session.flush()
+    verify_url = (
+        f"{current_app.config['PUBLIC_BASE_URL']}/privacidade/confirmar?"
+        f"protocol={row.protocol}&token={raw_token}"
+    )
+    dispatch_email(
+        recipient=email,
+        template=privacy_verification(
+            protocol=row.protocol,
+            verify_url=verify_url,
+            expires_minutes=expires_minutes,
+        ),
+        idempotency_key=f"privacy-verification:{row.id}",
+    )
+    db.session.commit()
+    return success({"protocol": row.protocol, "verification_sent": True}, status=201)
+
+
+@bp.get("/privacy/requests/<request_protocol>/verify")
+def verify_privacy_request(request_protocol: str):
+    raw_token = request.args.get("token", "").strip()
+    row = (
+        db.session.scalar(
+            select(PrivacyRequest).where(
+                PrivacyRequest.protocol == request_protocol,
+                PrivacyRequest.verification_token_hash == sha256(raw_token),
+            )
+        )
+        if raw_token
+        else None
+    )
+    if (
+        not row
+        or row.verified_at
+        or not row.verification_expires_at
+        or aware_utc(row.verification_expires_at) <= datetime.now(UTC)
+    ):
+        return failure("verification_invalid", "Link inválido ou expirado.", status=422)
+    row.verified_at = datetime.now(UTC)
+    row.status = "received"
+    db.session.commit()
+    return success({"protocol": row.protocol, "verified": True})
 
 
 @bp.get("/categories")
@@ -492,6 +573,7 @@ def gallery():
             GalleryAlbum.status == "published",
         )
     )
+
     if request.args.get("category"):
         query = query.where(GalleryMedia.category == request.args["category"])
     rows = db.session.execute(
@@ -517,6 +599,31 @@ def gallery():
         ],
         meta={"page": page, "limit": limit, "has_more": len(rows) > limit},
     )
+
+
+@bp.get("/media/products/<media_id>")
+def public_product_media_file(media_id: str):
+    try:
+        parsed = UUID(media_id)
+    except ValueError:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    media = db.session.scalar(
+        select(ProductMedia)
+        .join(Product)
+        .where(
+            ProductMedia.id == parsed,
+            ProductMedia.provider == "local",
+            ProductMedia.active.is_(True),
+            Product.status == "published",
+        )
+    )
+    if not media:
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    root = Path("instance/uploads/products").resolve()
+    target = (root / media.storage_key).resolve()
+    if root not in target.parents or not target.is_file():
+        return failure("not_found", "Mídia não encontrada.", status=404)
+    return send_file(target, mimetype="image/webp", as_attachment=False, conditional=True)
 
 
 @bp.get("/media/gallery/<media_id>")

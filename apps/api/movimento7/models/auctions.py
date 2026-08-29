@@ -63,6 +63,24 @@ class Bidder(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class AuctionAuthorization(UUIDPrimaryKeyMixin, TimestampMixin, db.Model):
+    __tablename__ = "auction_authorizations"
+    lot_id: Mapped[UUID] = mapped_column(ForeignKey("auction_lots.id"), nullable=False, index=True)
+    bidder_id: Mapped[UUID] = mapped_column(ForeignKey("bidders.id"), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider_order_id: Mapped[str] = mapped_column(String(180), unique=True, nullable=False)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(180), unique=True)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="authorized", index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Bid(UUIDPrimaryKeyMixin, db.Model):
     __tablename__ = "bids"
     __table_args__ = (
@@ -74,6 +92,10 @@ class Bid(UUIDPrimaryKeyMixin, db.Model):
     amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="valid", index=True)
     idempotency_key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    request_hash: Mapped[str | None] = mapped_column(String(64))
+    authorization_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("auction_authorizations.id"), unique=True
+    )
     terms_version: Mapped[str] = mapped_column(String(30), nullable=False)
     terms_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
